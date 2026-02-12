@@ -540,6 +540,68 @@ export async function getItemsByPedido(pedidoId: number) {
     .where(eq(itemsPedido.pedidoId, pedidoId));
 }
 
+export async function getComandasByArea(empresaId: number, area: "COCINA" | "BAR") {
+  const db = await getDb();
+  if (!db) return [];
+
+  // 1. Obtener pedidos activos (Pendientes o En Preparación)
+  const activePedidos = await db.select({
+    id: pedidos.id,
+    mesaId: pedidos.mesaId,
+    mozoId: pedidos.mozoId,
+    orderStatus: pedidos.orderStatus,
+    createdAt: pedidos.createdAt,
+    notas: pedidos.notas,
+    mesaNumero: mesas.numero,
+    mozoNombre: empleados.nombre,
+  })
+    .from(pedidos)
+    .innerJoin(mesas, eq(pedidos.mesaId, mesas.id))
+    .innerJoin(empleados, eq(pedidos.mozoId, empleados.id))
+    .where(
+      and(
+        eq(pedidos.empresaId, empresaId),
+        or(
+          eq(pedidos.orderStatus, "PENDIENTE"),
+          eq(pedidos.orderStatus, "PREPARANDO")
+        )
+      )
+    )
+    .orderBy(asc(pedidos.createdAt));
+
+  // 2. Para cada pedido, obtener sus items filtrados por área
+  const comandas = [];
+
+  for (const p of activePedidos) {
+    const items = await db.select({
+      id: itemsPedido.id,
+      cantidad: itemsPedido.cantidad,
+      notas: itemsPedido.notas,
+      productoNombre: productos.nombre,
+      categoriaArea: categorias.area
+    })
+      .from(itemsPedido)
+      .innerJoin(productos, eq(itemsPedido.productoId, productos.id))
+      .innerJoin(categorias, eq(productos.categoriaId, categorias.id))
+      .where(
+        and(
+          eq(itemsPedido.pedidoId, p.id),
+          eq(categorias.area, area)
+        )
+      );
+
+    if (items.length > 0) {
+      comandas.push({
+        ...p,
+        items
+      });
+    }
+  }
+
+  return comandas;
+}
+
+
 export async function addItemPedido(data: InsertItemPedido) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");

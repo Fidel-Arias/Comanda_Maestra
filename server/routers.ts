@@ -171,6 +171,7 @@ export const appRouter = router({
         descripcion: z.string().nullable().optional(),
         icono: z.string().nullable().optional(),
         orden: z.number().optional(),
+        area: z.enum(["COCINA", "BAR"]).optional(),
       }))
       .mutation(async ({ input }) => {
         const categoriaId = await db.createCategoria({
@@ -179,6 +180,7 @@ export const appRouter = router({
           descripcion: input.descripcion,
           icono: input.icono,
           orden: input.orden,
+          area: input.area,
         });
         return { success: true, categoriaId };
       }),
@@ -190,6 +192,7 @@ export const appRouter = router({
         descripcion: z.string().nullable().optional(),
         icono: z.string().nullable().optional(),
         orden: z.number().optional(),
+        area: z.enum(["COCINA", "BAR"]).optional(),
       }))
       .mutation(async ({ input }) => {
         const { id, ...data } = input;
@@ -295,6 +298,15 @@ export const appRouter = router({
       .input(z.object({ empresaId: z.number() }))
       .query(async ({ input }) => {
         return db.getPedidosActivos(input.empresaId);
+      }),
+
+    listComandas: publicProcedure
+      .input(z.object({
+        empresaId: z.number(),
+        area: z.enum(["COCINA", "BAR"])
+      }))
+      .query(async ({ input }) => {
+        return db.getComandasByArea(input.empresaId, input.area);
       }),
 
     getByMesa: publicProcedure
@@ -887,8 +899,8 @@ export const appRouter = router({
           totalItemsTotal += itemTotal;
 
           return {
-            unidad_de_medida: "NIU",
-            codigo: item.productoId.toString(),
+            unidad_de_medida: "",
+            codigo: "",
             descripcion: item.notas ? `${(item as any).productoNombre} (${item.notas})` : ((item as any).productoNombre || `Producto #${item.productoId}`),
             cantidad: item.cantidad,
             valor_unitario: valorUnitario,
@@ -1056,6 +1068,47 @@ export const appRouter = router({
       }))
       .mutation(async ({ input }) => {
         return db.deleteComprobante(input.id);
+      }),
+
+    anularComprobante: publicProcedure
+      .input(z.object({
+        empresaId: z.number(),
+        comprobanteId: z.number(),
+        motivo: z.string(),
+      }))
+      .mutation(async ({ input }) => {
+        const comprobante = await db.getComprobanteById(input.comprobanteId);
+        if (!comprobante) throw new Error("Comprobante no encontrado");
+
+        // Solo se pueden dar de baja facturas y boletas
+        const tipoNubeFact = TIPO_NUBEFACT[comprobante.tipo as keyof typeof TIPO_NUBEFACT];
+        if (!tipoNubeFact || (tipoNubeFact !== 1 && tipoNubeFact !== 2)) {
+          throw new Error("Solo se pueden anular Facturas y Boletas directamente.");
+        }
+
+        const nfRequest: nubefact.NubeFactAnulacionRequest = {
+          operacion: "generar_anulacion",
+          tipo_de_comprobante: tipoNubeFact,
+          serie: comprobante.serie,
+          numero: comprobante.numero,
+          motivo: input.motivo,
+        };
+
+        try {
+          const nfResponse = await nubefact.anularComprobante(nfRequest);
+
+          // Actualizar estado en DB
+          await db.updateComprobanteStatus(
+            comprobante.id,
+            "ANULADO",
+            nfResponse.sunat_description || "Comunicación de Baja Enviada"
+          );
+
+          return { success: true, message: nfResponse.sunat_description };
+        } catch (err: any) {
+          console.error("NubeFact Anulacion Error:", err);
+          throw new Error(`Error al anular: ${err.message || "Error desconocido"}`);
+        }
       }),
   }),
 });

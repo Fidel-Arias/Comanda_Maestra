@@ -127,7 +127,55 @@ export async function consultarComprobante(tipo: number, serie: string, numero: 
     const result = await response.json();
 
     if (!response.ok) {
+        // Si el error es "Documento no existe", devolvemos un estado limpio
+        if (result.errors && result.errors.includes("Documento no existe")) {
+            return {
+                sunat_description: "NO ENCONTRADO EN SUNAT (Posiblemente solo local)",
+                enlace_del_pdf: "",
+                enlace_del_xml: "",
+                enlace_del_cdr: "",
+                cadena_para_codigo_qr: "",
+                sunat_ticket_numero: "",
+                aceptada_por_sunat: false,
+                sunat_soap_error: "",
+                codigo_hash: ""
+            } as unknown as NubeFactResponse;
+        }
         throw new Error(result.errors || "Error calling NubeFact API");
+    }
+
+    return result as NubeFactResponse;
+}
+
+export interface NubeFactAnulacionRequest {
+    operacion: "generar_anulacion";
+    tipo_de_comprobante: number;
+    serie: string;
+    numero: number;
+    motivo: string;
+    codigo_unico?: string;
+}
+
+export async function anularComprobante(data: NubeFactAnulacionRequest): Promise<NubeFactResponse> {
+    if (!NUBEFACT_ENDPOINT || !NUBEFACT_TOKEN) {
+        throw new Error("NubeFact credentials not configured");
+    }
+
+    console.log("NubeFact Anulación Request Payload:", JSON.stringify(data, null, 2));
+
+    const response = await fetch(NUBEFACT_ENDPOINT, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Token token=\"${NUBEFACT_TOKEN}\"`,
+        },
+        body: JSON.stringify(data),
+    });
+
+    const result = await response.json();
+
+    if (!response.ok) {
+        throw new Error(result.errors || "Error calling NubeFact API for Anulacion");
     }
 
     return result as NubeFactResponse;

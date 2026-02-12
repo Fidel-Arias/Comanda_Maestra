@@ -10,8 +10,18 @@ import { Badge } from "@/components/ui/display/badge";
 import {
     FileText, Search, Filter, Download, ExternalLink,
     CheckCircle2, Clock, AlertCircle, ShoppingBag,
-    ArrowLeft, FileJson, FileCode, RefreshCw, Trash2, X
+    ArrowLeft, FileJson, FileCode, RefreshCw, Trash2, X, AlertTriangle
 } from "lucide-react";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/overlays/dialog";
+import { Textarea } from "@/components/ui/forms/textarea";
+import { Label } from "@/components/ui/forms/label";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
@@ -21,6 +31,9 @@ export default function InvoicesPage() {
     const [, navigate] = useLocation();
     const { empleado, empresa } = usePOS();
     const [searchTerm, setSearchTerm] = useState("");
+    const [anularComprobante, setAnularComprobante] = useState<any>(null);
+    const [motivoAnulacion, setMotivoAnulacion] = useState("");
+    const [showAnularDialog, setShowAnularDialog] = useState(false);
 
     const { data: comprobantes, isLoading, refetch } = trpc.billing.listComprobantes.useQuery(
         { empresaId: empresa?.id || 0 },
@@ -28,7 +41,8 @@ export default function InvoicesPage() {
     );
 
     const consultarMutation = trpc.billing.consultarComprobante.useMutation();
-    const anularMutation = trpc.billing.generateNota.useMutation();
+    const notaCreditoMutation = trpc.billing.generateNota.useMutation();
+    const anularMutation = trpc.billing.anularComprobante.useMutation();
     const deleteMutation = trpc.billing.deleteComprobante.useMutation();
 
     const handleConsultar = async (c: any) => {
@@ -49,23 +63,33 @@ export default function InvoicesPage() {
         }
     };
 
-    const handleAnular = async (c: any) => {
-        if (!confirm("¿Está seguro de anular este comprobante? Se generará una Nota de Crédito.")) return;
+    const handleOpenAnular = (c: any) => {
+        setAnularComprobante(c);
+        setMotivoAnulacion("ERROR EN LA EMISION");
+        setShowAnularDialog(true);
+    };
+
+    const confirmAnular = async () => {
+        if (!anularComprobante) return;
+        if (!motivoAnulacion.trim()) {
+            toast.error("El motivo es obligatorio");
+            return;
+        }
 
         try {
             await anularMutation.mutateAsync({
                 empresaId: empresa?.id || 0,
-                comprobanteId: c.id,
-                tipo: "NOTA_CREDITO",
-                motivo: 1, // Anulación de la operación
-                sustento: "Anulación por el usuario"
+                comprobanteId: anularComprobante.id,
+                motivo: motivoAnulacion
             });
-            toast.success("Nota de crédito generada correctamente");
+            toast.success("Comunicación de Baja enviada correctamente");
+            setShowAnularDialog(false);
             refetch();
-        } catch (error) {
-            toast.error("Error al anular comprobante");
+        } catch (error: any) {
+            toast.error(error.message || "Error al anular comprobante");
         }
     };
+
 
     const handleEliminarLocal = async (c: any) => {
         if (!confirm("¿Deseas eliminar este registro SOLO del sistema local? Úsalo solo si ya lo borraste en NubeFact.")) return;
@@ -275,14 +299,14 @@ export default function InvoicesPage() {
                                                         <Download className="h-4 w-4 text-red-500" />
                                                     </Button>
                                                 )}
-                                                {c.tipo !== "TICKET" && !c.tipo.includes("NOTA") && (
+                                                {c.tipo !== "TICKET" && !c.tipo.includes("NOTA") && c.sunatStatus === "ACEPTADO" && (
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
                                                         className="h-8 w-8 rounded-full"
-                                                        onClick={() => handleAnular(c)}
+                                                        onClick={() => handleOpenAnular(c)}
                                                         disabled={anularMutation.isPending}
-                                                        title="Anular vía NubeFact (Genera NC)"
+                                                        title="Dar de Baja (Anular)"
                                                     >
                                                         <Trash2 className="h-4 w-4 text-rose-500" />
                                                     </Button>
@@ -297,14 +321,7 @@ export default function InvoicesPage() {
                                                 >
                                                     <X className="h-4 w-4 text-muted-foreground" />
                                                 </Button>
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="h-8 w-8 rounded-full"
-                                                    onClick={() => navigate(`/facturacion/${c.id}`)}
-                                                >
-                                                    <ExternalLink className="h-4 w-4" />
-                                                </Button>
+
                                             </div>
                                         </div>
                                     </div>
@@ -316,6 +333,45 @@ export default function InvoicesPage() {
             </main>
 
             <BottomNavigation />
+
+            <Dialog open={showAnularDialog} onOpenChange={setShowAnularDialog}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2 text-rose-600">
+                            <AlertTriangle className="h-5 w-5" />
+                            Anular Comprobante
+                        </DialogTitle>
+                        <DialogDescription>
+                            Está a punto de dar de <strong>BAJA</strong> el comprobante
+                            <span className="font-bold text-foreground"> {anularComprobante?.serie}-{anularComprobante?.numero}</span> ante la SUNAT.
+                            <br /><br />
+                            Esta acción es irreversible y anula legalmente el documento.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="py-2">
+                        <Label htmlFor="motivo">Motivo de la anulación:</Label>
+                        <Textarea
+                            id="motivo"
+                            className="mt-2"
+                            value={motivoAnulacion}
+                            onChange={(e) => setMotivoAnulacion(e.target.value)}
+                            placeholder="Ej: Error en el precio, Error en el RUC, Devolución total..."
+                        />
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setShowAnularDialog(false)}>
+                            Cancelar
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            onClick={confirmAnular}
+                            disabled={anularMutation.isPending}
+                        >
+                            {anularMutation.isPending ? "Anulando..." : "Confirmar Anulación"}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

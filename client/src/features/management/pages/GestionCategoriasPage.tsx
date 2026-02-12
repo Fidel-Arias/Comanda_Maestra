@@ -22,9 +22,9 @@ import {
 } from "@/components/ui/forms/select";
 import { BottomNavigation } from "@/components/layout/BottomNavigation";
 import { useLocation } from "wouter";
-import { 
-  ArrowLeft, Plus, Pencil, Trash2, 
-  UtensilsCrossed, Coffee, Wine, IceCream, Salad, Pizza, 
+import {
+  ArrowLeft, Plus, Pencil, Trash2,
+  UtensilsCrossed, Coffee, Wine, IceCream, Salad, Pizza,
   Soup, Sandwich, Beef, Fish, Cake, Beer, GlassWater,
   Cookie, Croissant, Egg, Apple, Cherry, Grape, Carrot
 } from "lucide-react";
@@ -69,17 +69,25 @@ export default function GestionCategorias() {
     descripcion: string | null;
     icono: string | null;
     orden: number | null;
+    area: "COCINA" | "BAR";
   } | null>(null);
-  
-  const [formData, setFormData] = useState({
+
+  const [formData, setFormData] = useState<{
+    nombre: string;
+    descripcion: string;
+    icono: string;
+    orden: number;
+    area: "COCINA" | "BAR";
+  }>({
     nombre: "",
     descripcion: "",
     icono: "utensils",
     orden: 0,
+    area: "COCINA",
   });
 
   const utils = trpc.useUtils();
-  
+
   const { data: categorias, isLoading } = trpc.categoria.listByEmpresa.useQuery(
     { empresaId: empleado?.empresaId || 0 },
     { enabled: !!empleado?.empresaId }
@@ -120,13 +128,19 @@ export default function GestionCategorias() {
   });
 
   const resetForm = () => {
-    setFormData({ nombre: "", descripcion: "", icono: "utensils", orden: 0 });
+    setFormData({
+      nombre: "",
+      descripcion: "",
+      icono: "utensils",
+      orden: 0,
+      area: "COCINA"
+    });
     setEditingCategoria(null);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!formData.nombre.trim()) {
       toast.error("El nombre es requerido");
       return;
@@ -139,6 +153,7 @@ export default function GestionCategorias() {
         descripcion: formData.descripcion || null,
         icono: formData.icono,
         orden: formData.orden,
+        area: formData.area,
       });
     } else {
       createMutation.mutate({
@@ -147,6 +162,7 @@ export default function GestionCategorias() {
         descripcion: formData.descripcion || null,
         icono: formData.icono,
         orden: formData.orden,
+        area: formData.area,
       });
     }
   };
@@ -159,6 +175,7 @@ export default function GestionCategorias() {
       descripcion: categoria.descripcion || "",
       icono: categoria.icono || "utensils",
       orden: categoria.orden || 0,
+      area: (categoria.area as "COCINA" | "BAR") || "COCINA",
     });
     setDialogOpen(true);
   };
@@ -179,8 +196,8 @@ export default function GestionCategorias() {
       {/* Header */}
       <header className="bg-card border-b border-border px-4 py-3">
         <div className="flex items-center gap-3">
-          <Button 
-            variant="ghost" 
+          <Button
+            variant="ghost"
             size="icon"
             onClick={() => setLocation("/dashboard")}
           >
@@ -221,7 +238,23 @@ export default function GestionCategorias() {
                   placeholder="Ej: Entradas, Bebidas, Postres"
                 />
               </div>
-              
+
+              <div className="space-y-2">
+                <Label htmlFor="area">Área de Producción</Label>
+                <Select
+                  value={formData.area}
+                  onValueChange={(value: "COCINA" | "BAR") => setFormData({ ...formData, area: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecciona área" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="COCINA">Cocina (Comidas)</SelectItem>
+                    <SelectItem value="BAR">Bar (Bebidas)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
               <div className="space-y-2">
                 <Label htmlFor="descripcion">Descripción</Label>
                 <Textarea
@@ -232,7 +265,7 @@ export default function GestionCategorias() {
                   rows={2}
                 />
               </div>
-              
+
               <div className="space-y-2">
                 <Label>Icono</Label>
                 <Select
@@ -257,7 +290,7 @@ export default function GestionCategorias() {
                   </SelectContent>
                 </Select>
               </div>
-              
+
               <div className="space-y-2">
                 <Label htmlFor="orden">Orden de visualización</Label>
                 <Input
@@ -268,7 +301,7 @@ export default function GestionCategorias() {
                   onChange={(e) => setFormData({ ...formData, orden: parseInt(e.target.value) || 0 })}
                 />
               </div>
-              
+
               <div className="flex gap-2 pt-4">
                 <Button
                   type="button"
@@ -315,7 +348,12 @@ export default function GestionCategorias() {
                           {categoria.descripcion && (
                             <p className="text-sm text-muted-foreground">{categoria.descripcion}</p>
                           )}
-                          <p className="text-xs text-muted-foreground">Orden: {categoria.orden || 0}</p>
+                          <div className="flex gap-2 text-xs text-muted-foreground mt-1">
+                            <span>Orden: {categoria.orden || 0}</span>
+                            <span className="font-semibold px-2 py-0.5 rounded bg-muted">
+                              {categoria.area === "COCINA" ? "Cocina" : "Bar"}
+                            </span>
+                          </div>
                         </div>
                       </div>
                       <div className="flex gap-2">

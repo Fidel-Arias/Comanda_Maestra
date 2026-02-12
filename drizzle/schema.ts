@@ -12,6 +12,8 @@ export const paymentStatusEnum = pgEnum("payment_status", ["PENDIENTE", "PAGADO"
 export const comprobanteTypeEnum = pgEnum("comprobante_type", ["BOLETA", "FACTURA", "TICKET", "NOTA_CREDITO", "NOTA_DEBITO"]);
 export const sunatStatusEnum = pgEnum("sunat_status", ["PENDIENTE", "ENVIADO", "ACEPTADO", "RECHAZADO", "ANULADO"]);
 export const systemRoleEnum = pgEnum("system_role", ["user", "admin"]);
+// Nuevo Enum para Áreas de Producción
+export const comandaAreaEnum = pgEnum("comanda_area", ["COCINA", "BAR"]);
 
 // ============================================
 // TABLA: EMPRESAS (Multi-tenancy)
@@ -85,6 +87,7 @@ export const categorias = pgTable("categorias", {
   descripcion: text("descripcion"),
   icono: varchar("icono", { length: 50 }),
   orden: integer("orden").default(0),
+  area: comandaAreaEnum("area").default("COCINA").notNull(),
   activa: boolean("activa").default(true),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
