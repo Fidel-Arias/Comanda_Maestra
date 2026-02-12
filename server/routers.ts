@@ -309,6 +309,12 @@ export const appRouter = router({
         return db.getComandasByArea(input.empresaId, input.area);
       }),
 
+    listPedidosListos: publicProcedure
+      .input(z.object({ empresaId: z.number() }))
+      .query(async ({ input }) => {
+        return db.getPedidosListos(input.empresaId);
+      }),
+
     getByMesa: publicProcedure
       .input(z.object({ mesaId: z.number() }))
       .query(async ({ input }) => {
@@ -415,6 +421,16 @@ export const appRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await db.deleteItem(input.id);
+        return { success: true };
+      }),
+
+    updateStatus: publicProcedure
+      .input(z.object({
+        id: z.number(),
+        estado: z.enum(["PENDIENTE", "PREPARANDO", "LISTO", "ENTREGADO", "CANCELADO"]),
+      }))
+      .mutation(async ({ input }) => {
+        await db.updateItemEstado(input.id, input.estado);
         return { success: true };
       }),
   }),
@@ -858,6 +874,13 @@ export const appRouter = router({
         const items = await db.getItemsByPedido(venta.pedidoId);
         const numero = await db.getNextComprobanteNumero(input.empresaId, input.tipo, input.serie);
 
+        // Obtener configuración de impuesto de la empresa
+        const empresa = await db.getEmpresaById(input.empresaId);
+        if (!empresa) throw new Error("Empresa no encontrada");
+
+        const igvPorcentaje = parseFloat(empresa.impuestoPorcentaje || "10.50");
+        const factorIgv = 1 + (igvPorcentaje / 100); // Ej: 1.105 para 10.5%
+
         // Si es TICKET, solo guardamos en DB interna
         if (input.tipo === "TICKET") {
           const ticketItems = items.map(item => ({
@@ -865,7 +888,7 @@ export const appRouter = router({
             cantidad: item.cantidad,
             precioUnitario: item.precioUnitario,
             subtotal: item.subtotal,
-            igv: (parseFloat(item.subtotal) * 0.18).toFixed(2),
+            igv: (parseFloat(item.subtotal) * (igvPorcentaje / 100)).toFixed(2),
           }));
 
           return db.createComprobante({
@@ -889,7 +912,7 @@ export const appRouter = router({
 
         const nfItems: nubefact.NubeFactItem[] = items.map(item => {
           const itemTotal = parseFloat(item.subtotal);
-          const itemSubtotalSinIgv = Number((itemTotal / 1.18).toFixed(2));
+          const itemSubtotalSinIgv = Number((itemTotal / factorIgv).toFixed(2));
           const itemIgv = Number((itemTotal - itemSubtotalSinIgv).toFixed(2));
           const valorUnitario = Number((itemSubtotalSinIgv / item.cantidad).toFixed(2));
           const precioUnitario = Number((itemTotal / item.cantidad).toFixed(2));
@@ -899,7 +922,7 @@ export const appRouter = router({
           totalItemsTotal += itemTotal;
 
           return {
-            unidad_de_medida: "",
+            unidad_de_medida: "ZZ",
             codigo: "",
             descripcion: item.notas ? `${(item as any).productoNombre} (${item.notas})` : ((item as any).productoNombre || `Producto #${item.productoId}`),
             cantidad: item.cantidad,
@@ -924,7 +947,7 @@ export const appRouter = router({
           cliente_denominacion: input.nombreCliente || "PÚBLICO EN GENERAL",
           fecha_de_emision: format(new Date(), "dd-MM-yyyy"),
           moneda: 1, // Soles
-          porcentaje_de_igv: 18,
+          porcentaje_de_igv: igvPorcentaje,
           total_gravada: Number(totalItemsGravada.toFixed(2)),
           total_igv: Number(totalItemsIgv.toFixed(2)),
           total: Number(totalItemsTotal.toFixed(2)),
@@ -983,15 +1006,22 @@ export const appRouter = router({
 
         const numero = await db.getNextComprobanteNumero(input.empresaId, input.tipo, serie);
 
+        // Obtener configuración de impuesto de la empresa
+        const empresa = await db.getEmpresaById(input.empresaId);
+        if (!empresa) throw new Error("Empresa no encontrada");
+
+        const igvPorcentaje = parseFloat(empresa.impuestoPorcentaje || "10.50");
+        const factorIgv = 1 + (igvPorcentaje / 100); // Ej: 1.105 para 10.5%
+
         const nfItems: nubefact.NubeFactItem[] = compRelacionado.items.map(item => {
           const total = parseFloat(item.subtotal);
           const precioUnitario = parseFloat(item.precioUnitario);
-          const valorUnitario = precioUnitario / 1.18;
-          const subtotalSinIgv = total / 1.18;
+          const valorUnitario = precioUnitario / factorIgv;
+          const subtotalSinIgv = total / factorIgv;
           const igv = total - subtotalSinIgv;
 
           return {
-            unidad_de_medida: "NIU",
+            unidad_de_medida: "ZZ",
             codigo: "NOT01",
             descripcion: item.descripcion,
             cantidad: item.cantidad,
@@ -1020,7 +1050,7 @@ export const appRouter = router({
           cliente_denominacion: "CLIENTE",
           fecha_de_emision: format(new Date(), "dd-MM-yyyy"),
           moneda: 1,
-          porcentaje_de_igv: 18,
+          porcentaje_de_igv: igvPorcentaje,
           total_gravada: Number(subtotalNum.toFixed(2)),
           total_igv: Number(igvTotalNum.toFixed(2)),
           total: Number(totalNum.toFixed(2)),

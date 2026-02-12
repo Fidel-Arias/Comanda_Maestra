@@ -8,20 +8,33 @@ import { Clock, ChefHat, Wine, CheckCircle2 } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 
+import { toast } from "sonner";
+
 interface ProductionPageProps {
     area: "COCINA" | "BAR";
 }
 
 export default function ProductionPage({ area }: ProductionPageProps) {
     const { empresa } = usePOS();
+    const utils = trpc.useUtils();
 
     const { data: comandas, refetch } = trpc.pedido.listComandas.useQuery(
         { empresaId: empresa?.id || 0, area },
         {
             enabled: !!empresa?.id,
-            refetchInterval: 10000 // Poll every 10 seconds
+            refetchInterval: 3000 // Actualización casi instantánea (cada 3 seg)
         }
     );
+
+    const updateStatusMutation = trpc.itemPedido.updateStatus.useMutation({
+        onSuccess: () => {
+            toast.success("Estado actualizado");
+            utils.pedido.listComandas.invalidate();
+        },
+        onError: (error) => {
+            toast.error("Error al actualizar estado: " + error.message);
+        }
+    });
 
     return (
         <div className="min-h-screen bg-background p-6">
@@ -88,7 +101,35 @@ export default function ProductionPage({ area }: ProductionPageProps) {
                                                         "{item.notas}"
                                                     </p>
                                                 )}
+                                                {item.estado === "PREPARANDO" && (
+                                                    <Badge variant="outline" className="ml-2 mt-1 animate-pulse border-yellow-500 text-yellow-500">
+                                                        Preparando
+                                                    </Badge>
+                                                )}
                                             </div>
+                                        </div>
+
+                                        <div className="flex flex-col gap-2">
+                                            {item.estado === "PENDIENTE" && (
+                                                <Button
+                                                    size="sm"
+                                                    variant="secondary"
+                                                    onClick={() => updateStatusMutation.mutate({ id: item.id, estado: "PREPARANDO" })}
+                                                    disabled={updateStatusMutation.isPending}
+                                                >
+                                                    Preparar
+                                                </Button>
+                                            )}
+                                            {(item.estado === "PENDIENTE" || item.estado === "PREPARANDO") && (
+                                                <Button
+                                                    size="sm"
+                                                    onClick={() => updateStatusMutation.mutate({ id: item.id, estado: "LISTO" })}
+                                                    disabled={updateStatusMutation.isPending}
+                                                    className="bg-green-600 hover:bg-green-700 text-white"
+                                                >
+                                                    ¡Listo!
+                                                </Button>
+                                            )}
                                         </div>
                                     </li>
                                 ))}

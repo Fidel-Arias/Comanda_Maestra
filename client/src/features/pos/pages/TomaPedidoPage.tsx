@@ -106,16 +106,22 @@ export default function TomaPedido() {
     });
   }, [productos, searchTerm, selectedCategoria]);
 
-  // Calcular totales
+  // Calcular totales (los precios YA INCLUYEN IGV)
   const { subtotal, impuesto, total } = useMemo(() => {
-    const sub = items.reduce((acc, item) => acc + item.subtotal, 0);
-    const igv = sub * 0.18; // 18% IGV
+    const totalConIgv = items.reduce((acc, item) => acc + item.subtotal, 0);
+    const igvPorcentaje = parseFloat(empresa?.impuestoPorcentaje || "10.50");
+    const factorIgv = 1 + (igvPorcentaje / 100); // 1.105 para 10.5%
+
+    // Desglosar: extraer el IGV del total
+    const subtotalSinIgv = totalConIgv / factorIgv;
+    const igv = totalConIgv - subtotalSinIgv;
+
     return {
-      subtotal: sub,
+      subtotal: subtotalSinIgv,
       impuesto: igv,
-      total: sub + igv,
+      total: totalConIgv,
     };
-  }, [items]);
+  }, [items, empresa]);
 
   const getStockStatus = (stock: number | null, stockMinimo: number | null) => {
     const s = stock || 0;
@@ -409,7 +415,7 @@ export default function TomaPedido() {
                     <span>S/ {subtotal.toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">IGV (18%)</span>
+                    <span className="text-muted-foreground">IGV (10.5%)</span>
                     <span>S/ {impuesto.toFixed(2)}</span>
                   </div>
                   <Separator />

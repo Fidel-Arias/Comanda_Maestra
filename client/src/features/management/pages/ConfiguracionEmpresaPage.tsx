@@ -15,8 +15,8 @@ import {
 } from "@/components/ui/forms/select";
 import { BottomNavigation } from "@/components/layout/BottomNavigation";
 import { useLocation } from "wouter";
-import { 
-  ArrowLeft, Building2, Save, Receipt, 
+import {
+  ArrowLeft, Building2, Save, Receipt,
   Phone, Mail, MapPin, FileText, Percent, Coins
 } from "lucide-react";
 import { toast } from "sonner";
@@ -25,7 +25,7 @@ export default function ConfiguracionEmpresa() {
   const { empleado, empresa, setEmpresa } = usePOS();
   const [, setLocation] = useLocation();
   const [isLoading, setIsLoading] = useState(false);
-  
+
   const [formData, setFormData] = useState({
     nombre: "",
     ruc: "",
@@ -34,7 +34,7 @@ export default function ConfiguracionEmpresa() {
     telefono: "",
     email: "",
     logoUrl: "",
-    impuestoPorcentaje: "18.00",
+    impuestoPorcentaje: "10.50",
     moneda: "PEN",
   });
 
@@ -72,7 +72,7 @@ export default function ConfiguracionEmpresa() {
         telefono: empresa.telefono || "",
         email: empresa.email || "",
         logoUrl: empresa.logoUrl || "",
-        impuestoPorcentaje: empresa.impuestoPorcentaje || "18.00",
+        impuestoPorcentaje: empresa.impuestoPorcentaje || "10.50",
         moneda: empresa.moneda || "PEN",
       });
     }
@@ -113,8 +113,8 @@ export default function ConfiguracionEmpresa() {
       {/* Header */}
       <header className="bg-card border-b border-border px-4 py-3">
         <div className="flex items-center gap-3">
-          <Button 
-            variant="ghost" 
+          <Button
+            variant="ghost"
             size="icon"
             onClick={() => setLocation("/dashboard")}
           >
@@ -258,7 +258,7 @@ export default function ConfiguracionEmpresa() {
                   <span className="text-muted-foreground">%</span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  El IGV en Perú es 18%. Ajusta según tu país.
+                  El IGV en Perú es 10.5% para restaurantes. Ajusta según tu país.
                 </p>
               </div>
 
@@ -307,9 +307,9 @@ export default function ConfiguracionEmpresa() {
               </div>
               {formData.logoUrl && (
                 <div className="mt-4 flex justify-center">
-                  <img 
-                    src={formData.logoUrl} 
-                    alt="Logo preview" 
+                  <img
+                    src={formData.logoUrl}
+                    alt="Logo preview"
                     className="max-h-24 object-contain rounded-lg border"
                     onError={(e) => {
                       (e.target as HTMLImageElement).style.display = 'none';
@@ -321,9 +321,9 @@ export default function ConfiguracionEmpresa() {
           </Card>
 
           {/* Botón guardar */}
-          <Button 
-            type="submit" 
-            className="w-full gap-2" 
+          <Button
+            type="submit"
+            className="w-full gap-2"
             size="lg"
             disabled={isLoading || !formData.nombre}
           >

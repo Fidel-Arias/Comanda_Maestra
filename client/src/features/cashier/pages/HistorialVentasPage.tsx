@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/display/table";
 import { BottomNavigation } from "@/components/layout/BottomNavigation";
 import { useLocation } from "wouter";
-import { 
+import {
   ArrowLeft, Filter, Eye, Receipt, Calendar,
   DollarSign, User, Loader2
 } from "lucide-react";
@@ -52,7 +52,7 @@ export default function HistorialVentas() {
   // Calcular fechas según el preset seleccionado
   const fechasCalculadas = useMemo(() => {
     const hoy = new Date();
-    
+
     switch (filterPreset) {
       case "hoy":
         return {
@@ -86,13 +86,13 @@ export default function HistorialVentas() {
 
   // Query con fechas corregidas - usar ISO string completo
   const { data: ventas, isLoading, refetch } = trpc.historial.getVentas.useQuery(
-    { 
+    {
       empresaId: empleado?.empresaId || 0,
       fechaInicio: fechasCalculadas.inicio,
       fechaFin: fechasCalculadas.fin,
       mozoId: mozoFilter !== "all" ? parseInt(mozoFilter) : undefined,
     },
-    { 
+    {
       enabled: !!empleado?.empresaId,
       refetchOnWindowFocus: true,
     }
@@ -154,8 +154,8 @@ export default function HistorialVentas() {
       {/* Header */}
       <header className="bg-card border-b border-border px-4 py-3">
         <div className="flex items-center gap-3">
-          <Button 
-            variant="ghost" 
+          <Button
+            variant="ghost"
             size="icon"
             onClick={() => setLocation("/dashboard")}
           >
@@ -244,9 +244,9 @@ export default function HistorialVentas() {
                 </SelectContent>
               </Select>
             </div>
-            <Button 
-              variant="outline" 
-              size="sm" 
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => refetch()}
               className="w-full"
             >
@@ -367,7 +367,7 @@ export default function HistorialVentas() {
               Detalle de Venta #{selectedVenta}
             </DialogTitle>
           </DialogHeader>
-          
+
           {detalleVenta && (
             <div className="space-y-4">
               {/* Info del pedido */}
@@ -381,7 +381,7 @@ export default function HistorialVentas() {
                   Mesa: {detalleVenta.pedido?.mesaId || 'N/A'}
                 </div>
               </div>
-              
+
               {/* Items */}
               <div className="border rounded-lg overflow-hidden">
                 <Table>
@@ -410,7 +410,7 @@ export default function HistorialVentas() {
                   </TableBody>
                 </Table>
               </div>
-              
+
               {/* Totales */}
               <div className="space-y-2 pt-2 border-t">
                 <div className="flex justify-between text-sm">
@@ -418,7 +418,7 @@ export default function HistorialVentas() {
                   <span>{formatCurrency(detalleVenta.pedido?.subtotal || '0')}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">IGV (18%)</span>
+                  <span className="text-muted-foreground">IGV (10.5%)</span>
                   <span>{formatCurrency(detalleVenta.pedido?.impuesto || '0')}</span>
                 </div>
                 <div className="flex justify-between font-bold text-lg">
@@ -426,7 +426,7 @@ export default function HistorialVentas() {
                   <span className="text-primary">{formatCurrency(detalleVenta.pedido?.total || '0')}</span>
                 </div>
               </div>
-              
+
               {/* Info de pago */}
               {detalleVenta.pago && (
                 <div className="pt-2 border-t space-y-2">

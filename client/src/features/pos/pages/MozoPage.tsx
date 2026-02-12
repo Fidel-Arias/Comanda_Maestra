@@ -25,6 +25,9 @@ const estadoConfig: Record<MesaEstado, { label: string; color: string; bgColor: 
   RESERVADA: { label: "Reservada", color: "text-rose-300", bgColor: "bg-rose-400/30 border-rose-400/60" },
 };
 
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/overlays/sheet";
+import { Bell, ChefHat, Wine, CheckSquare, Coffee } from "lucide-react";
+
 export default function Mozo() {
   const [, navigate] = useLocation();
   const { empleado, empresa, logout } = usePOS();
@@ -61,9 +64,29 @@ export default function Mozo() {
       toast.info("Mesa reservada. El Cajero debe confirmar la llegada desde el panel de Reservas.");
       return;
     } else if (estado === "OCUPADA" || estado === "PIDIENDO_CUENTA") {
-      // Ir a toma de pedido para visualizar
       navigate(`/pedido/${mesaId}`);
     }
+  };
+
+
+
+  const { data: pedidosListos, refetch: refetchListos } = trpc.pedido.listPedidosListos.useQuery(
+    { empresaId: empresa?.id || 0 },
+    {
+      enabled: !!empresa?.id,
+      refetchInterval: 5000
+    }
+  );
+
+  const updateItemStatusMutation = trpc.itemPedido.updateStatus.useMutation({
+    onSuccess: () => {
+      toast.success("Marcado como entregado");
+      refetchListos();
+    }
+  });
+
+  const handleEntregar = (itemId: number) => {
+    updateItemStatusMutation.mutate({ id: itemId, estado: "ENTREGADO" });
   };
 
   const handleOcuparMesa = async () => {
@@ -145,9 +168,62 @@ export default function Mozo() {
                 </p>
               </div>
             </div>
-            <Button variant="ghost" size="icon" onClick={handleLogout}>
-              <LogOut className="h-5 w-5" />
-            </Button>
+
+            <div className="flex gap-2">
+              <Sheet>
+                <SheetTrigger asChild>
+                  <Button variant="ghost" size="icon" className="relative">
+                    <Bell className="h-5 w-5" />
+                    {pedidosListos && pedidosListos.length > 0 && (
+                      <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] text-white animate-pulse">
+                        {pedidosListos.length}
+                      </span>
+                    )}
+                  </Button>
+                </SheetTrigger>
+                <SheetContent>
+                  <SheetHeader>
+                    <SheetTitle>Pedidos Listos</SheetTitle>
+                  </SheetHeader>
+                  <div className="mt-6 flex flex-col gap-4">
+                    {pedidosListos?.length === 0 ? (
+                      <div className="text-center text-muted-foreground py-10">
+                        <CheckSquare className="h-10 w-10 mx-auto mb-2 opacity-50" />
+                        <p>No hay pedidos pendientes de entrega</p>
+                      </div>
+                    ) : (
+                      pedidosListos?.map((item: any) => (
+                        <div key={item.id} className="p-3 border rounded-lg bg-card shadow-sm flex justify-between items-center">
+                          <div>
+                            <div className="flex items-center gap-2 mb-1">
+                              <Badge variant="outline">Mesa {item.mesaNumero}</Badge>
+                              {item.area === "COCINA" ? (
+                                <ChefHat className="h-4 w-4 text-orange-500" />
+                              ) : (
+                                <Wine className="h-4 w-4 text-purple-500" />
+                              )}
+                            </div>
+                            <p className="font-medium text-sm">{item.cantidad} x {item.productoNombre}</p>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            className="h-8 w-8 p-0"
+                            onClick={() => handleEntregar(item.id)}
+                          >
+                            <CheckSquare className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </SheetContent>
+              </Sheet>
+
+              <Button variant="ghost" size="icon" onClick={handleLogout}>
+                <LogOut className="h-5 w-5" />
+              </Button>
+            </div>
           </div>
         </div>
       </header>

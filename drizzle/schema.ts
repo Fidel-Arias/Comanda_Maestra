@@ -29,7 +29,7 @@ export const empresas = pgTable("empresas", {
   email: varchar("email", { length: 255 }),
   logoUrl: text("logo_url"),
   activa: boolean("activa").default(true),
-  impuestoPorcentaje: decimal("impuesto_porcentaje", { precision: 5, scale: 2 }).default("18.00"),
+  impuestoPorcentaje: decimal("impuesto_porcentaje", { precision: 5, scale: 2 }).default("10.50"),
   moneda: varchar("moneda", { length: 3 }).default("PEN"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -151,6 +151,7 @@ export const itemsPedido = pgTable("items_pedido", {
   precioUnitario: decimal("precio_unitario", { precision: 10, scale: 2 }).notNull(),
   subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull(),
   notas: text("notas"),
+  estado: orderStatusEnum("estado").default("PENDIENTE").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

@@ -290,7 +290,7 @@ export default function Cajero() {
 
   // Filtrar pedidos que están listos para cobrar
   const pedidosParaCobrar = pedidosActivos?.filter(
-    p => p.orderStatus === "PREPARANDO" || p.orderStatus === "LISTO" || p.orderStatus === "PENDIENTE"
+    p => p.orderStatus === "PREPARANDO" || p.orderStatus === "LISTO" || p.orderStatus === "PENDIENTE" || p.orderStatus === "ENTREGADO"
   ) || [];
 
   return (
@@ -502,9 +502,10 @@ export default function Cajero() {
                             "text-xs",
                             pedido.orderStatus === "LISTO" && "text-emerald-400 border-emerald-500/50",
                             pedido.orderStatus === "PREPARANDO" && "text-amber-400 border-amber-500/50",
-                            pedido.orderStatus === "PENDIENTE" && "text-blue-400 border-blue-500/50"
+                            pedido.orderStatus === "PENDIENTE" && "text-blue-400 border-blue-500/50",
+                            pedido.orderStatus === "ENTREGADO" && "text-green-400 border-green-500/50"
                           )}>
-                            {pedido.orderStatus}
+                            {pedido.orderStatus === "ENTREGADO" ? "CONSUMIENDO" : pedido.orderStatus}
                           </Badge>
                         </div>
                         <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">

@@ -577,6 +577,7 @@ export async function getComandasByArea(empresaId: number, area: "COCINA" | "BAR
       id: itemsPedido.id,
       cantidad: itemsPedido.cantidad,
       notas: itemsPedido.notas,
+      estado: itemsPedido.estado,
       productoNombre: productos.nombre,
       categoriaArea: categorias.area
     })
@@ -586,7 +587,11 @@ export async function getComandasByArea(empresaId: number, area: "COCINA" | "BAR
       .where(
         and(
           eq(itemsPedido.pedidoId, p.id),
-          eq(categorias.area, area)
+          eq(categorias.area, area),
+          or(
+            eq(itemsPedido.estado, "PENDIENTE"),
+            eq(itemsPedido.estado, "PREPARANDO")
+          )
         )
       );
 
@@ -599,6 +604,36 @@ export async function getComandasByArea(empresaId: number, area: "COCINA" | "BAR
   }
 
   return comandas;
+}
+
+export async function getPedidosListos(empresaId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  // Items listos para recoger (READY)
+  const itemsListos = await db.select({
+    id: itemsPedido.id,
+    pedidoId: itemsPedido.pedidoId,
+    productoNombre: productos.nombre,
+    cantidad: itemsPedido.cantidad,
+    mesaNumero: mesas.numero,
+    mozoId: pedidos.mozoId,
+    area: categorias.area,
+    updatedAt: itemsPedido.createdAt // Idealmente deberíamos tener updatedAt en itemsPedido
+  })
+    .from(itemsPedido)
+    .innerJoin(pedidos, eq(itemsPedido.pedidoId, pedidos.id))
+    .innerJoin(productos, eq(itemsPedido.productoId, productos.id))
+    .innerJoin(categorias, eq(productos.categoriaId, categorias.id))
+    .innerJoin(mesas, eq(pedidos.mesaId, mesas.id))
+    .where(
+      and(
+        eq(pedidos.empresaId, empresaId),
+        eq(itemsPedido.estado, "LISTO")
+      )
+    );
+
+  return itemsListos;
 }
 
 
@@ -619,6 +654,16 @@ export async function deleteItem(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.delete(itemsPedido).where(eq(itemsPedido.id, id));
+}
+
+// ============================================
+// ITEM UPDATE FUNCTION
+// ============================================
+
+export async function updateItemEstado(id: number, estado: "PENDIENTE" | "PREPARANDO" | "LISTO" | "ENTREGADO" | "CANCELADO") {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(itemsPedido).set({ estado }).where(eq(itemsPedido.id, id));
 }
 
 // ============================================
@@ -721,12 +766,52 @@ export async function getPedidosActivos(empresaId: number) {
   const db = await getDb();
   if (!db) return [];
 
-  return db.select().from(pedidos).where(
+  const activePedidos = await db.select().from(pedidos).where(
     and(
       eq(pedidos.empresaId, empresaId),
       sql`${pedidos.orderStatus} IN ('PENDIENTE', 'PREPARANDO', 'LISTO')`
     )
   ).orderBy(desc(pedidos.createdAt));
+
+  // Para cada pedido, obtener los items con sus estados
+  const pedidosConItems = await Promise.all(
+    activePedidos.map(async (pedido) => {
+      const items = await db.select({
+        id: itemsPedido.id,
+        estado: itemsPedido.estado,
+        cantidad: itemsPedido.cantidad,
+        productoNombre: productos.nombre
+      })
+        .from(itemsPedido)
+        .innerJoin(productos, eq(itemsPedido.productoId, productos.id))
+        .where(eq(itemsPedido.pedidoId, pedido.id));
+
+      // Determinar el estado real del pedido basado en los items
+      let estadoReal = pedido.orderStatus;
+
+      if (items.length > 0) {
+        const todosEntregados = items.every(item => item.estado === "ENTREGADO");
+        const algunoPreparando = items.some(item => item.estado === "PREPARANDO");
+        const todosListos = items.every(item => item.estado === "LISTO" || item.estado === "ENTREGADO");
+
+        if (todosEntregados) {
+          estadoReal = "ENTREGADO"; // Consumiendo
+        } else if (algunoPreparando) {
+          estadoReal = "PREPARANDO";
+        } else if (todosListos) {
+          estadoReal = "LISTO";
+        }
+      }
+
+      return {
+        ...pedido,
+        orderStatus: estadoReal,
+        items
+      };
+    })
+  );
+
+  return pedidosConItems;
 }
 
 export async function getVentasPorHora(empresaId: number) {
