@@ -824,9 +824,12 @@ export const appRouter = router({
       }),
 
     listComprobantes: publicProcedure
-      .input(z.object({ empresaId: z.number() }))
+      .input(z.object({
+        empresaId: z.number(),
+        fecha: z.string().optional(),
+      }))
       .query(async ({ input }) => {
-        return db.getComprobantesByEmpresa(input.empresaId);
+        return db.getComprobantesByEmpresa(input.empresaId, input.fecha);
       }),
 
     getComprobante: publicProcedure

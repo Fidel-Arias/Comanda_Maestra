@@ -1427,10 +1427,19 @@ export async function createComprobante(comprobante: InsertComprobante, items: O
   });
 }
 
-export async function getComprobantesByEmpresa(empresaId: number) {
+export async function getComprobantesByEmpresa(empresaId: number, fecha?: string) {
   const db = await getDb();
   if (!db) return [];
-  return db.select().from(comprobantes).where(eq(comprobantes.empresaId, empresaId)).orderBy(desc(comprobantes.createdAt));
+
+  let conditions = eq(comprobantes.empresaId, empresaId);
+
+  if (fecha) {
+    const startDate = new Date(`${fecha}T00:00:00`);
+    const endDate = new Date(`${fecha}T23:59:59.999`);
+    conditions = and(conditions, gte(comprobantes.createdAt, startDate), lte(comprobantes.createdAt, endDate))!;
+  }
+
+  return db.select().from(comprobantes).where(conditions).orderBy(desc(comprobantes.createdAt));
 }
 
 export async function getComprobanteById(id: number) {

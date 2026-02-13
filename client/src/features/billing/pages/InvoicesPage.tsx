@@ -31,12 +31,16 @@ export default function InvoicesPage() {
     const [, navigate] = useLocation();
     const { empleado, empresa } = usePOS();
     const [searchTerm, setSearchTerm] = useState("");
+    const [fecha, setFecha] = useState<string>("");
     const [anularComprobante, setAnularComprobante] = useState<any>(null);
     const [motivoAnulacion, setMotivoAnulacion] = useState("");
     const [showAnularDialog, setShowAnularDialog] = useState(false);
 
     const { data: comprobantes, isLoading, refetch } = trpc.billing.listComprobantes.useQuery(
-        { empresaId: empresa?.id || 0 },
+        {
+            empresaId: empresa?.id || 0,
+            fecha: fecha || undefined
+        },
         { enabled: !!empresa?.id }
     );
 
@@ -213,13 +217,21 @@ export default function InvoicesPage() {
                 </div>
 
                 {/* Buscador */}
-                <div className="relative mb-6">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <div className="flex flex-col sm:flex-row gap-4 mb-6">
+                    <div className="relative flex-1">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                        <Input
+                            placeholder="Buscar por serie, número o RUC..."
+                            className="pl-10 bg-card/50"
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                        />
+                    </div>
                     <Input
-                        placeholder="Buscar por serie, número o RUC..."
-                        className="pl-10 bg-card/50"
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
+                        type="date"
+                        className="w-full sm:w-[180px] bg-card/50"
+                        value={fecha}
+                        onChange={(e) => setFecha(e.target.value)}
                     />
                 </div>
 
