@@ -10,7 +10,7 @@ import { ScrollArea } from "@/components/ui/display/scroll-area";
 import { Separator } from "@/components/ui/display/separator";
 import {
   ArrowLeft, Search, Plus, Minus, Trash2,
-  Send, Loader2, AlertCircle, Check
+  Send, Loader2, AlertCircle, Check, Printer
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -30,7 +30,10 @@ export default function TomaPedido() {
   const mesaId = parseInt(params.mesaId || "0");
   const [, navigate] = useLocation();
   const { empleado, empresa } = usePOS();
-  const isCajero = empleado?.rol === "CAJERO";
+  // Permitimos que el cajero edite para correcciones
+  const isCajeroReal = empleado?.rol === "CAJERO";
+  const isCajero = false; // Hack para habilitar la interfaz de edición completa
+  const isCorrectionMode = typeof window !== 'undefined' && window.location.search.includes("mode=correction");
 
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategoria, setSelectedCategoria] = useState<number | null>(null);
@@ -159,21 +162,51 @@ export default function TomaPedido() {
     }
   };
 
-  const handleUpdateCantidad = (index: number, delta: number) => {
+  const handleUpdateCantidad = async (index: number, delta: number) => {
     const newItems = [...items];
-    const newCantidad = newItems[index].cantidad + delta;
+    const item = newItems[index];
+    const newCantidad = item.cantidad + delta;
 
     if (newCantidad <= 0) {
+      if (item.id) {
+        try {
+          await deleteItemMutation.mutateAsync({ id: item.id });
+        } catch (error) {
+          toast.error("Error al eliminar item");
+          return;
+        }
+      }
       newItems.splice(index, 1);
+      setItems(newItems);
     } else {
-      newItems[index].cantidad = newCantidad;
-      newItems[index].subtotal = newCantidad * newItems[index].precioUnitario;
-    }
+      item.cantidad = newCantidad;
+      item.subtotal = newCantidad * item.precioUnitario;
+      setItems(newItems);
 
-    setItems(newItems);
+      if (item.id) {
+        try {
+          await updateItemMutation.mutateAsync({
+            id: item.id,
+            cantidad: newCantidad,
+            subtotal: item.subtotal.toFixed(2),
+          });
+        } catch (error) {
+          // Silent error or toast
+        }
+      }
+    }
   };
 
-  const handleRemoveItem = (index: number) => {
+  const handleRemoveItem = async (index: number) => {
+    const item = items[index];
+    if (item.id) {
+      try {
+        await deleteItemMutation.mutateAsync({ id: item.id });
+      } catch (error) {
+        toast.error("Error al eliminar item");
+        return;
+      }
+    }
     const newItems = [...items];
     newItems.splice(index, 1);
     setItems(newItems);
@@ -208,14 +241,23 @@ export default function TomaPedido() {
         total: total.toFixed(2),
       });
 
-      // Cambiar estado a PREPARANDO
-      await updateEstadoMutation.mutateAsync({
-        id: pedidoId,
-        estado: "PREPARANDO",
-      });
-
-      toast.success("Pedido enviado a cocina");
-      navigate("/mozo");
+      // Cambiar estado
+      if (!isCajeroReal) {
+        await updateEstadoMutation.mutateAsync({
+          id: pedidoId,
+          estado: "PREPARANDO",
+        });
+        toast.success("Pedido enviado a cocina");
+        navigate("/mozo");
+      } else {
+        // Cajero corrigiendo: aseguramos estado LISTO para cobrar
+        await updateEstadoMutation.mutateAsync({
+          id: pedidoId,
+          estado: "LISTO",
+        });
+        toast.success("Pedido actualizado");
+        navigate("/cajero");
+      }
     } catch (error) {
       toast.error("Error al enviar el pedido");
     }
@@ -425,8 +467,8 @@ export default function TomaPedido() {
                   </div>
                 </div>
 
-                {/* Actions - Hidden for Cashiers */}
-                {!isCajero && (
+                {/* Actions */}
+                {!isCajero ? (
                   <Button
                     className="w-full mt-4 h-12"
                     onClick={handleEnviarPedido}
@@ -437,7 +479,96 @@ export default function TomaPedido() {
                     ) : (
                       <Send className="h-5 w-5 mr-2" />
                     )}
-                    Enviar a Cocina
+                    {isCorrectionMode ? "Corregir Pedido" : (isCajeroReal ? "Guardar Cambios" : "Enviar a Cocina")}
+                  </Button>
+                ) : (
+                  <Button
+                    variant="secondary"
+                    className="w-full mt-4 h-12"
+                    onClick={() => {
+                      const printWindow = window.open('', '', 'height=600,width=400');
+                      if (printWindow) {
+                        const logoHtml = empresa.logoUrl ? `<img src="${empresa.logoUrl}" style="max-width: 150px; max-height: 80px; margin-bottom: 5px;" />` : '';
+
+                        printWindow.document.write('<html><head><title>Precuenta</title>');
+                        printWindow.document.write('<style>');
+                        printWindow.document.write(`
+                          @page { size: auto; margin: 0mm; } 
+                          body { font-family: 'Courier New', Courier, monospace; font-size: 12px; margin: 5mm; width: 280px; }
+                          .header { text-align: center; margin-bottom: 10px; }
+                          h3 { margin: 5px 0; font-size: 14px; font-weight: bold; text-transform: uppercase; }
+                          p { margin: 2px 0; }
+                          .separator { border-top: 1px dashed black; margin: 10px 0; }
+                          table { width: 100%; border-collapse: collapse; }
+                          th { text-align: left; border-bottom: 1px dashed black; padding-bottom: 3px; font-size: 11px; }
+                          td { vertical-align: top; padding: 4px 0; font-size: 11px; }
+                          .text-right { text-align: right; }
+                          .text-center { text-align: center; }
+                          .totals { margin-top: 10px; border-top: 1px dashed black; padding-top: 5px; }
+                          .total-row { display: flex; justify-content: space-between; margin-bottom: 2px; }
+                          .grand-total { font-weight: bold; font-size: 14px; margin-top: 5px; }
+                        `);
+                        printWindow.document.write('</style>');
+                        printWindow.document.write('</head><body>');
+
+                        // Header
+                        printWindow.document.write('<div class="header">');
+                        printWindow.document.write(logoHtml);
+                        printWindow.document.write(`<h3>${empresa.nombre}</h3>`);
+                        if (empresa.ruc) printWindow.document.write(`<p>RUC ${empresa.ruc}</p>`);
+                        if (empresa.direccion) printWindow.document.write(`<p>${empresa.direccion}</p>`);
+                        if (empresa.telefono) printWindow.document.write(`<p>Tel: ${empresa.telefono}</p>`);
+                        printWindow.document.write('<div class="separator"></div>');
+                        printWindow.document.write('<h3>PRECUENTA DE CONSUMO</h3>');
+                        printWindow.document.write(`<p>MESA: ${mesa?.numero} - MOZO: ${empleado.nombre.toUpperCase()}</p>`);
+                        printWindow.document.write(`<p>FECHA: ${new Date().toLocaleString()}</p>`);
+                        printWindow.document.write('</div>');
+
+                        // Items Table
+                        printWindow.document.write('<table>');
+                        printWindow.document.write('<thead><tr><th style="width: 50%;">DESCRIPCIÓN</th><th class="text-right">P.U.</th><th class="text-right">TOTAL</th></tr></thead>');
+                        printWindow.document.write('<tbody>');
+                        items.forEach(item => {
+                          printWindow.document.write('<tr>');
+                          printWindow.document.write(`<td>[${item.cantidad}] ${item.nombre.toUpperCase()}</td>`);
+                          printWindow.document.write(`<td class="text-right">${item.precioUnitario.toFixed(2)}</td>`);
+                          printWindow.document.write(`<td class="text-right">${item.subtotal.toFixed(2)}</td>`);
+                          printWindow.document.write('</tr>');
+                        });
+                        printWindow.document.write('</tbody></table>');
+
+                        // Totals
+                        printWindow.document.write('<div class="totals">');
+                        printWindow.document.write('<div class="total-row"><span>GRAVADA:</span><span>S/ ' + subtotal.toFixed(2) + '</span></div>');
+                        printWindow.document.write('<div class="total-row"><span>IGV (10.5%):</span><span>S/ ' + impuesto.toFixed(2) + '</span></div>');
+                        printWindow.document.write('<div class="total-row grand-total"><span>TOTAL:</span><span>S/ ' + total.toFixed(2) + '</span></div>');
+                        printWindow.document.write('</div>');
+
+                        // Footer
+                        printWindow.document.write('<div class="separator"></div>');
+                        printWindow.document.write('<div class="text-center">');
+                        printWindow.document.write('<p>Gracias por su preferencia</p>');
+                        printWindow.document.write('</div>');
+
+                        printWindow.document.write('</body></html>');
+
+                        printWindow.document.close();
+
+                        // Wait for images to load before printing
+                        if (empresa.logoUrl) {
+                          setTimeout(() => {
+                            printWindow.focus();
+                            printWindow.print();
+                          }, 500);
+                        } else {
+                          printWindow.focus();
+                          printWindow.print();
+                        }
+                      }
+                    }}
+                  >
+                    <Printer className="h-5 w-5 mr-2" />
+                    Imprimir Precuenta
                   </Button>
                 )}
               </>

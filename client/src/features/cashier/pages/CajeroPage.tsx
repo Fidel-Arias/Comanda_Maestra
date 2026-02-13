@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import {
   DollarSign, CreditCard, Smartphone, LogOut,
   Loader2, Check, Receipt, Banknote, Clock, Users,
-  LockOpen, Lock, AlertTriangle, Calculator, Wallet
+  LockOpen, Lock, AlertTriangle, Calculator, Wallet, Search, History, RotateCcw, Eye, Edit
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -41,17 +41,69 @@ export default function Cajero() {
   const [montoInicial, setMontoInicial] = useState("");
   const [montoFinalContado, setMontoFinalContado] = useState("");
   const [observacionesCierre, setObservacionesCierre] = useState("");
+  const [activeTab, setActiveTab] = useState<'cobrar' | 'historial'>('cobrar');
 
   // Estados para facturación
-  const [tipoComprobante, setTipoComprobante] = useState<"TICKET" | "BOLETA" | "FACTURA">("TICKET");
+  const [tipoComprobante, setTipoComprobante] = useState<"TICKET" | "BOLETA" | "FACTURA">("BOLETA");
   const [rucCliente, setRucCliente] = useState("");
   const [nombreCliente, setNombreCliente] = useState("");
+  const [direccionCliente, setDireccionCliente] = useState("");
 
   // Queries
   const { data: pedidosActivos, isLoading, refetch } = trpc.pedido.listActivos.useQuery(
     { empresaId: empresa?.id || 0 },
-    { enabled: !!empresa?.id, refetchInterval: 5000 }
+    { enabled: !!empresa, refetchInterval: 5000 }
   );
+
+  const { data: historialVentas, refetch: refetchHistorial } = trpc.billing.listVentasHistorial.useQuery(
+    { empresaId: empresa?.id || 0 },
+    { enabled: !!empresa && activeTab === 'historial' }
+  );
+
+  // Detalles Venta
+  const [showDetailsDialog, setShowDetailsDialog] = useState(false);
+  const [selectedVentaId, setSelectedVentaId] = useState<number | null>(null);
+
+  const { data: ventaDetails } = trpc.billing.getVentaDetails.useQuery(
+    { ventaId: selectedVentaId! },
+    { enabled: !!selectedVentaId && showDetailsDialog }
+  );
+
+  // Estados Anulación
+  const [showAnularDialog, setShowAnularDialog] = useState(false);
+  const [ventaToAnularId, setVentaToAnularId] = useState<number | null>(null);
+  const [motivoAnulacion, setMotivoAnulacion] = useState("");
+
+  const anularVentaMutation = trpc.billing.anularVenta.useMutation({
+    onSuccess: (data: any) => {
+      toast.success("Venta anulada. Redirigiendo a edición...");
+      refetchHistorial();
+      refetch();
+      if (data.mesaId) {
+        // Redirigir a la edición del pedido en modo corrección
+        navigate(`/pedido/${data.mesaId}?mode=correction`);
+      }
+    },
+    onError: (e) => toast.error(e.message)
+  });
+
+  const handleAnularVenta = (ventaId: number) => {
+    setVentaToAnularId(ventaId);
+    setMotivoAnulacion("");
+    setShowAnularDialog(true);
+  };
+
+  const confirmarAnulacion = () => {
+    if (!ventaToAnularId || !motivoAnulacion.trim()) {
+      toast.error("Debe ingresar un motivo de anulación");
+      return;
+    }
+    anularVentaMutation.mutate({
+      ventaId: ventaToAnularId,
+      motivo: motivoAnulacion
+    });
+    setShowAnularDialog(false);
+  };
 
   const { data: mesas } = trpc.mesa.listByEmpresa.useQuery(
     { empresaId: empresa?.id || 0 },
@@ -90,6 +142,26 @@ export default function Cajero() {
   const cerrarCajaMutation = trpc.caja.cerrar.useMutation();
   const createVentaMutation = trpc.billing.createVenta.useMutation();
   const generateComprobanteMutation = trpc.billing.generateComprobante.useMutation();
+  const consultarEntidadMutation = trpc.billing.consultarEntidad.useMutation({
+    onSuccess: (data) => {
+      if (data) {
+        setNombreCliente(data.razon_social);
+        if (data.direccion) setDireccionCliente(data.direccion);
+        toast.success("Contribuyente encontrado");
+      }
+    },
+    onError: (error) => {
+      toast.error(`Error al consultar: ${error.message}`);
+    }
+  });
+
+  const handleConsultarEntidad = () => {
+    if (rucCliente.length < 8) {
+      toast.error("Ingrese un documento válido (8 o 11 dígitos)");
+      return;
+    }
+    consultarEntidadMutation.mutate({ numero: rucCliente });
+  };
 
   const pedidoSeleccionado = useMemo(() => {
     return pedidosActivos?.find(p => p.id === selectedPedido);
@@ -163,6 +235,8 @@ export default function Cajero() {
     }
 
     try {
+      setShowPagoDialog(false); // Cerrar modal inmediatamente para mostrar carga en tarjeta
+
       // 1. Registrar el Pago en caja
       await createPagoMutation.mutateAsync({
         empresaId: empresa.id,
@@ -448,93 +522,135 @@ export default function Cajero() {
           </Card>
         </div>
 
-        {/* Pedidos List */}
-        <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
-          <Receipt className="h-5 w-5 text-primary" />
-          Cuentas por Cobrar
-        </h2>
+        {/* Navegación y Contenido */}
+        <div className="flex bg-muted/20 p-1 rounded-lg w-fit mb-6 mt-6">
+          <button onClick={() => setActiveTab('cobrar')} className={cn("px-4 py-2 text-sm font-medium rounded-md transition-all flex items-center gap-2", activeTab === 'cobrar' ? "bg-background shadow text-primary" : "text-muted-foreground hover:bg-muted/50")}>
+            <Receipt className="h-4 w-4" /> Cuentas por Cobrar
+          </button>
+          <button onClick={() => setActiveTab('historial')} className={cn("px-4 py-2 text-sm font-medium rounded-md transition-all flex items-center gap-2", activeTab === 'historial' ? "bg-background shadow text-primary" : "text-muted-foreground hover:bg-muted/50")}>
+            <History className="h-4 w-4" /> Historial de Ventas
+          </button>
+        </div>
 
-        {!cajaAbierta && (
-          <Card className="mb-4 bg-amber-500/10 border-amber-500/50">
-            <CardContent className="p-4 flex items-center gap-3">
-              <AlertTriangle className="h-5 w-5 text-amber-400" />
-              <p className="text-sm text-amber-400">
-                Debe abrir la caja antes de procesar pagos
-              </p>
-            </CardContent>
-          </Card>
-        )}
+        {activeTab === 'cobrar' ? (
+          <>
+            {!cajaAbierta && (
+              <Card className="mb-4 bg-amber-500/10 border-amber-500/50"><CardContent className="p-4 flex items-center gap-3"><AlertTriangle className="h-5 w-5 text-amber-400" /><p className="text-sm text-amber-400">Debe abrir la caja antes de procesar pagos</p></CardContent></Card>
+            )}
 
-        {isLoading ? (
-          <div className="flex justify-center py-12">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          </div>
-        ) : pedidosParaCobrar.length === 0 ? (
-          <Card className="bg-card/50 border-border/50">
-            <CardContent className="py-12 text-center">
-              <Receipt className="h-12 w-12 mx-auto text-muted-foreground mb-4 opacity-50" />
-              <p className="text-muted-foreground">No hay cuentas pendientes</p>
-            </CardContent>
-          </Card>
+            {isLoading ? (
+              <div className="flex justify-center py-12"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>
+            ) : pedidosParaCobrar.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground bg-muted/20 rounded-lg border border-dashed"><Receipt className="h-12 w-12 mx-auto mb-4 opacity-50" /><p>No hay cuentas pendientes de cobro</p></div>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {pedidosParaCobrar.map((pedido) => (
+                  <Card key={pedido.id} className={cn("relative cursor-pointer hover:border-primary transition-colors", !cajaAbierta && "opacity-50 cursor-not-allowed")} onClick={() => handleSelectPedido(pedido.id)}>
+                    {createPagoMutation.isPending && createPagoMutation.variables?.pedidoId === pedido.id && (
+                      <div className="absolute inset-0 bg-background/80 flex items-center justify-center z-10 rounded-xl backdrop-blur-sm">
+                        <div className="flex flex-col items-center gap-2">
+                          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+                          <span className="text-sm font-medium text-primary">Procesando...</span>
+                        </div>
+                      </div>
+                    )}
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h3 className="font-bold text-lg">Mesa {getMesaNumero(pedido.mesaId)}</h3>
+                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-muted" onClick={(e) => { e.stopPropagation(); navigate(`/pedido/${pedido.mesaId}`); }} title="Editar Pedido">
+                              <Edit className="h-3 w-3 text-muted-foreground hover:text-primary" />
+                            </Button>
+                            <Badge variant="outline" className={cn("text-xs", pedido.orderStatus === "LISTO" && "text-emerald-400 border-emerald-500/50", pedido.orderStatus === "PREPARANDO" && "text-amber-400 border-amber-500/50", pedido.orderStatus === "PENDIENTE" && "text-blue-400 border-blue-500/50", pedido.orderStatus === "ENTREGADO" && "text-green-400 border-green-500/50")}>
+                              {pedido.orderStatus === "ENTREGADO" ? "CONSUMIENDO" : pedido.orderStatus}
+                            </Badge>
+                          </div>
+                          <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
+                            <span className="flex items-center gap-1"><Users className="h-3 w-3" />{getMozoNombre(pedido.mozoId)}</span>
+                            <span className="flex items-center gap-1"><Clock className="h-3 w-3" />{new Date(pedido.createdAt).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}</span>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-2xl font-bold text-primary">S/ {parseFloat(pedido.total || "0").toFixed(2)}</div>
+                          <Button size="sm" className="mt-2" disabled={!cajaAbierta}>Cobrar</Button>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </>
         ) : (
-          <div className="space-y-3">
-            {pedidosParaCobrar.map((pedido) => (
-              <Card
-                key={pedido.id}
-                className={cn(
-                  "bg-card/50 border-border/50 transition-colors cursor-pointer",
-                  cajaAbierta ? "hover:border-primary/50" : "opacity-60 cursor-not-allowed"
-                )}
-                onClick={() => handleSelectPedido(pedido.id)}
-              >
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="w-14 h-14 rounded-xl bg-primary/20 flex items-center justify-center">
-                        <span className="text-xl font-bold text-primary">
-                          {getMesaNumero(pedido.mesaId)}
-                        </span>
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold">Mesa {getMesaNumero(pedido.mesaId)}</span>
-                          <Badge variant="outline" className={cn(
-                            "text-xs",
-                            pedido.orderStatus === "LISTO" && "text-emerald-400 border-emerald-500/50",
-                            pedido.orderStatus === "PREPARANDO" && "text-amber-400 border-amber-500/50",
-                            pedido.orderStatus === "PENDIENTE" && "text-blue-400 border-blue-500/50",
-                            pedido.orderStatus === "ENTREGADO" && "text-green-400 border-green-500/50"
-                          )}>
-                            {pedido.orderStatus === "ENTREGADO" ? "CONSUMIENDO" : pedido.orderStatus}
-                          </Badge>
-                        </div>
-                        <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
-                          <span className="flex items-center gap-1">
-                            <Users className="h-3 w-3" />
-                            {getMozoNombre(pedido.mozoId)}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Clock className="h-3 w-3" />
-                            {new Date(pedido.createdAt).toLocaleTimeString('es-PE', {
-                              hour: '2-digit',
-                              minute: '2-digit'
-                            })}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-2xl font-bold text-primary">
-                        S/ {parseFloat(pedido.total || "0").toFixed(2)}
-                      </div>
-                      <Button size="sm" className="mt-2" disabled={!cajaAbierta}>
-                        Cobrar
-                      </Button>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+          <div className="border rounded-lg overflow-hidden bg-card animate-in fade-in slide-in-from-bottom-2">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50 border-b text-left">
+                  <tr>
+                    <th className="px-4 py-3 font-medium text-muted-foreground">Fecha</th>
+                    <th className="px-4 py-3 font-medium text-muted-foreground">Comprobante</th>
+                    <th className="px-4 py-3 font-medium text-muted-foreground">Cliente</th>
+                    <th className="px-4 py-3 font-medium text-muted-foreground text-right">Total</th>
+                    <th className="px-4 py-3 font-medium text-muted-foreground">Estado</th>
+                    <th className="px-4 py-3 font-medium text-muted-foreground text-center">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y text-foreground">
+                  {(!historialVentas || historialVentas.length === 0) && (
+                    <tr><td colSpan={6} className="text-center py-8 text-muted-foreground">No hay ventas registradas hoy</td></tr>
+                  )}
+                  {historialVentas?.map((item: any) => (
+                    <tr key={item.ventas.id} className="hover:bg-muted/10 transition-colors">
+                      <td className="px-4 py-3">{new Date(item.ventas.createdAt).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}</td>
+                      <td className="px-4 py-3 font-mono">
+                        {item.comprobantes ? (
+                          <div>
+                            <span className="font-bold">{item.comprobantes.serie}-{item.comprobantes.numero}</span>
+                            <div className="text-[10px] text-muted-foreground">{item.comprobantes.tipo}</div>
+                          </div>
+                        ) : <span className="text-muted-foreground italic">Ticket</span>}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="font-medium truncate max-w-[150px]">{item.clientes?.nombre || item.comprobantes?.rucCliente || 'Público General'}</div>
+                      </td>
+                      <td className="px-4 py-3 text-right font-bold text-emerald-500">S/ {parseFloat(item.ventas.total).toFixed(2)}</td>
+                      <td className="px-4 py-3">
+                        {item.ventas.estado === 'ANULADA' ? (
+                          <Badge variant="destructive" className="text-[10px]">ANULADA</Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px] border-emerald-500 text-emerald-500 bg-emerald-500/10">PAGADO</Badge>
+                        )}
+                        {item.comprobantes?.sunatStatus === 'ANULADO' && <div className="text-[10px] text-red-400 mt-1">SUNAT: BAJA</div>}
+                      </td>
+                      <td className="px-4 py-3 text-center flex items-center justify-center gap-1">
+                        <Button
+                          variant="ghost" size="sm"
+                          className="text-blue-400 hover:text-blue-500 hover:bg-blue-500/10 h-8 w-8 p-0"
+                          onClick={() => { setSelectedVentaId(item.ventas.id); setShowDetailsDialog(true); }}
+                          title="Ver Productos"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+
+                        {item.ventas.estado !== 'ANULADA' && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-400 hover:text-red-500 hover:bg-red-500/10 h-8 text-xs ml-1"
+                            onClick={() => handleAnularVenta(item.ventas.id)}
+                            disabled={anularVentaMutation.isPending}
+                          >
+                            {anularVentaMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <RotateCcw className="h-3 w-3 mr-2" />}
+                            Anular
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </main>
@@ -832,8 +948,8 @@ export default function Cajero() {
               {/* Tipo de Comprobante */}
               <div className="pt-4 border-t border-border">
                 <Label className="mb-3 block">Tipo de Comprobante</Label>
-                <div className="grid grid-cols-3 gap-2">
-                  {(["TICKET", "BOLETA", "FACTURA"] as const).map((tipo) => (
+                <div className="grid grid-cols-2 gap-2">
+                  {(["BOLETA", "FACTURA"] as const).map((tipo) => (
                     <button
                       key={tipo}
                       onClick={() => setTipoComprobante(tipo)}
@@ -849,31 +965,61 @@ export default function Cajero() {
                   ))}
                 </div>
 
-                {tipoComprobante !== "TICKET" && (
-                  <div className="mt-4 space-y-3 animate-in fade-in slide-in-from-top-2">
-                    <div>
-                      <Label htmlFor="ruc">{tipoComprobante === "FACTURA" ? "RUC" : "DNI/RUC"} del Cliente</Label>
+                <div className="mt-4 space-y-3 animate-in fade-in slide-in-from-top-2">
+                  <div>
+                    <Label htmlFor="ruc">{tipoComprobante === "FACTURA" ? "RUC" : "DNI/RUC"} del Cliente</Label>
+                    <div className="relative mt-1">
                       <Input
                         id="ruc"
                         placeholder={tipoComprobante === "FACTURA" ? "Ingrese RUC (11 dígitos)" : "Ingrese documento (opcional)"}
                         value={rucCliente}
                         onChange={(e) => setRucCliente(e.target.value)}
-                        className="mt-1"
                         maxLength={11}
+                        className="pr-10"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleConsultarEntidad();
+                        }}
                       />
-                    </div>
-                    <div>
-                      <Label htmlFor="razon">{tipoComprobante === "FACTURA" ? "Razón Social" : "Nombre del Cliente"}</Label>
-                      <Input
-                        id="razon"
-                        placeholder={tipoComprobante === "FACTURA" ? "Razón Social" : "Nombre (opcional)"}
-                        value={nombreCliente}
-                        onChange={(e) => setNombreCliente(e.target.value)}
-                        className="mt-1"
-                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-0 top-0 h-full w-10 text-muted-foreground hover:text-primary"
+                        onClick={handleConsultarEntidad}
+                        disabled={consultarEntidadMutation.isPending}
+                      >
+                        {consultarEntidadMutation.isPending ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Search className="h-4 w-4" />
+                        )}
+                      </Button>
                     </div>
                   </div>
-                )}
+                  <div>
+                    <Label htmlFor="razon">{tipoComprobante === "FACTURA" ? "Razón Social" : "Nombre del Cliente"}</Label>
+                    <Input
+                      id="razon"
+                      placeholder={tipoComprobante === "FACTURA" ? "Razón Social" : "Nombre (opcional)"}
+                      value={nombreCliente}
+                      onChange={(e) => setNombreCliente(e.target.value)}
+                      className="mt-1"
+                    />
+                  </div>
+
+                  {tipoComprobante === "FACTURA" && (
+                    <div>
+                      <Label htmlFor="direccion">Dirección Fiscal</Label>
+                      <Input
+                        id="direccion"
+                        value={direccionCliente}
+                        onChange={(e) => setDireccionCliente(e.target.value)}
+                        className="mt-1"
+                        placeholder="Dirección completa"
+                      />
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}
@@ -898,7 +1044,86 @@ export default function Cajero() {
         </DialogContent>
       </Dialog>
 
+      {/* Dialog Detalle Venta */}
+      <Dialog open={showDetailsDialog} onOpenChange={setShowDetailsDialog}>
+        <DialogContent className="bg-card border-border max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Detalle de Venta</DialogTitle>
+            <DialogDescription>Productos incluidos en la venta</DialogDescription>
+          </DialogHeader>
+
+          <div className="border rounded-lg overflow-hidden mt-4">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50 border-b">
+                <tr>
+                  <th className="px-4 py-2 text-left font-medium">Producto</th>
+                  <th className="px-4 py-2 text-center font-medium">Cant.</th>
+                  <th className="px-4 py-2 text-right font-medium">P. Unit</th>
+                  <th className="px-4 py-2 text-right font-medium">Total</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {ventaDetails?.map((d: any) => (
+                  <tr key={d.id} className="hover:bg-muted/10 transition-colors">
+                    <td className="px-4 py-2 font-medium">{d.descripcion}</td>
+                    <td className="px-4 py-2 text-center">{d.cantidad}</td>
+                    <td className="px-4 py-2 text-right">S/ {parseFloat(d.precioUnitario).toFixed(2)}</td>
+                    <td className="px-4 py-2 text-right font-medium text-emerald-500">S/ {parseFloat(d.subtotal).toFixed(2)}</td>
+                  </tr>
+                ))}
+                {!ventaDetails && (
+                  <tr><td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">Cargando detalles...</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDetailsDialog(false)}>
+              Cerrar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog Confirmar Anulación */}
+      <Dialog open={showAnularDialog} onOpenChange={setShowAnularDialog}>
+        <DialogContent className="max-w-md bg-card border-border">
+          <DialogHeader>
+            <DialogTitle>Confirmar Anulación</DialogTitle>
+            <DialogDescription>
+              Esta acción anulará la venta y el comprobante asociado. El pedido será restaurado a "Cuentas por Cobrar" para su corrección.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="py-4 space-y-2">
+            <Label htmlFor="motivoAnulacion">Motivo de Anulación</Label>
+            <Textarea
+              id="motivoAnulacion"
+              placeholder="Ej: Error en el cobro, cliente devolvió producto..."
+              value={motivoAnulacion}
+              onChange={(e) => setMotivoAnulacion(e.target.value)}
+              className="mt-2 min-h-[100px]"
+            />
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowAnularDialog(false)}>
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={confirmarAnulacion}
+              disabled={anularVentaMutation.isPending}
+            >
+              {anularVentaMutation.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Confirmar Anulación
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <BottomNavigation />
-    </div>
+    </div >
   );
 }

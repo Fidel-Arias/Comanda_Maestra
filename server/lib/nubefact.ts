@@ -147,6 +147,116 @@ export async function consultarComprobante(tipo: number, serie: string, numero: 
     return result as NubeFactResponse;
 }
 
+export interface NubeFactEntidad {
+    tipo_de_documento: string;
+    numero_de_documento: string;
+    razon_social: string;
+    estado?: string;
+    condicion?: string;
+    direccion?: string;
+    ubigeo?: string;
+    distrito?: string;
+    provincia?: string;
+    departamento?: string;
+}
+
+// Token opcional para APIs.net.pe V2 (Mayor estabilidad)
+const APIS_NET_PE_TOKEN = process.env.APIS_NET_PE_TOKEN;
+
+export async function consultarEntidad(numero: string): Promise<NubeFactEntidad> {
+    const esRuc = numero.length === 11;
+
+    // MÉTODO 1: API V2 (Si existe token configurado - RECOMENDADO para producción)
+    if (APIS_NET_PE_TOKEN) {
+        try {
+            const tipoEntidad = esRuc ? "sunat/ruc" : "reniec/dni";
+            const url = `https://api.apis.net.pe/v2/${tipoEntidad}?numero=${numero}`;
+
+            console.log(`Consultando API V2 (Token): ${url}`);
+            const response = await fetch(url, {
+                headers: {
+                    "Authorization": `Bearer ${APIS_NET_PE_TOKEN}`,
+                    "Referer": "https://apis.net.pe/api-ruc",
+                }
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                if (data && (data.razonSocial || data.nombres || data.nombre)) {
+                    // Mapeo V2
+                    const razonSocial = data.razonSocial || (data.nombres ? `${data.nombres} ${data.apellidoPaterno} ${data.apellidoMaterno}` : data.nombre);
+
+                    if (esRuc) {
+                        return {
+                            tipo_de_documento: "6", // RUC
+                            numero_de_documento: data.numeroDocumento || numero,
+                            razon_social: razonSocial,
+                            estado: data.estado,
+                            condicion: data.condicion,
+                            direccion: data.direccion,
+                            ubigeo: data.ubigeo,
+                            distrito: data.distrito,
+                            provincia: data.provincia,
+                            departamento: data.departamento
+                        };
+                    } else {
+                        return {
+                            tipo_de_documento: "1", // DNI
+                            numero_de_documento: data.numeroDocumento || numero,
+                            razon_social: razonSocial,
+                        };
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn("Fallo API V2, intentando fallback V1...", e);
+        }
+    }
+
+    // MÉTODO 2: API V1 (Pública/Gratuita - Fallback)
+    try {
+        const tipo = esRuc ? "ruc" : "dni";
+        // V1 usa /ruc o /dni directo
+        const url = `https://api.apis.net.pe/v1/${tipo}?numero=${numero}`;
+
+        console.log(`Consultando API V1 (Pública): ${url}`);
+        const response = await fetch(url);
+
+        if (response.ok) {
+            const data = await response.json();
+            // Validar que tengamos datos reales
+            if (data && (data.nombre || data.razonSocial)) {
+                if (esRuc) {
+                    return {
+                        tipo_de_documento: "6", // RUC
+                        numero_de_documento: data.numeroDocumento || numero,
+                        razon_social: data.nombre, // En v1 ruc devuelve 'nombre' a veces
+                        estado: data.estado,
+                        condicion: data.condicion,
+                        direccion: data.direccion,
+                        ubigeo: data.ubigeo,
+                        distrito: data.distrito,
+                        provincia: data.provincia,
+                        departamento: data.departamento
+                    };
+                } else {
+                    return {
+                        tipo_de_documento: "1", // DNI
+                        numero_de_documento: data.numeroDocumento || numero,
+                        razon_social: data.nombre,
+                    };
+                }
+            }
+        }
+
+    } catch (e) {
+        console.warn("Fallo API V1 pública...", e);
+    }
+
+    // Si llegamos aquí y falló todo
+    throw new Error("No se encontraron datos. Verifique el número o ingrese los datos manualmente.");
+}
+
 export interface NubeFactAnulacionRequest {
     operacion: "generar_anulacion";
     tipo_de_comprobante: number;

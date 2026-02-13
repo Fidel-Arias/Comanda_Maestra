@@ -1140,6 +1140,78 @@ export const appRouter = router({
           throw new Error(`Error al anular: ${err.message || "Error desconocido"}`);
         }
       }),
+
+    consultarEntidad: publicProcedure
+      .input(z.object({
+        numero: z.string().min(8).max(11),
+      }))
+      .mutation(async ({ input }) => {
+        try {
+          return await nubefact.consultarEntidad(input.numero);
+        } catch (error: any) {
+          throw new Error(error.message);
+        }
+      }),
+
+    listVentasHistorial: publicProcedure
+      .input(z.object({ empresaId: z.number() }))
+      .query(async ({ input }) => {
+        return db.getVentasHistorial(input.empresaId);
+      }),
+
+    anularVenta: publicProcedure
+      .input(z.object({
+        ventaId: z.number(),
+        motivo: z.string(),
+      }))
+      .mutation(async ({ input }) => {
+        const venta = await db.getVentaById(input.ventaId);
+        if (!venta) throw new Error("Venta no encontrada");
+
+        // Anular Comprobante
+        const comprobante = await db.getComprobanteByVentaId(input.ventaId);
+        if (comprobante && comprobante.sunatStatus !== "ANULADO") {
+          // @ts-ignore
+          const tipoNubeFact = TIPO_NUBEFACT[comprobante.tipo as any];
+
+          if (tipoNubeFact === 1 || tipoNubeFact === 2) {
+            try {
+              const nfRequest: nubefact.NubeFactAnulacionRequest = {
+                operacion: "generar_anulacion",
+                tipo_de_comprobante: tipoNubeFact,
+                serie: comprobante.serie,
+                numero: comprobante.numero,
+                motivo: input.motivo,
+              };
+              const nfResponse = await nubefact.anularComprobante(nfRequest);
+
+              await db.updateComprobanteStatus(
+                comprobante.id,
+                "ANULADO",
+                nfResponse.sunat_description || "Anulado Exitosamente"
+              );
+            } catch (e: any) {
+              console.error("Error anulando en NubeFact:", e);
+              throw new Error(`Error NubeFact: ${e.message}`);
+            }
+          } else {
+            await db.updateComprobanteStatus(comprobante.id, "ANULADO", "Anulado Localmente");
+          }
+        }
+
+        const pedido = await db.getPedidoById(venta.pedidoId);
+
+        await db.anularVenta(input.ventaId);
+        await db.restaurarPedido(venta.pedidoId);
+
+        return { success: true, mesaId: pedido?.mesaId };
+      }),
+
+    getVentaDetails: publicProcedure
+      .input(z.object({ ventaId: z.number() }))
+      .query(async ({ input }) => {
+        return db.getVentaItems(input.ventaId);
+      }),
   }),
 });
 

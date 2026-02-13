@@ -1514,3 +1514,74 @@ export async function createCliente(data: InsertCliente) {
 }
 
 
+
+// ============================================
+// HISTORIAL Y RESTAURACION DE VENTAS
+// ============================================
+
+export async function getVentasHistorial(empresaId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  // Usamos leftJoin para traer info relacionada pero asegurando tipos
+  // Nota: Drizzle devolverá objetos anidados { ventas: ..., comprobantes: ..., pedidos: ... }
+  return db.select()
+    .from(ventas)
+    .leftJoin(comprobantes, eq(ventas.id, comprobantes.ventaId))
+    .leftJoin(pedidos, eq(ventas.pedidoId, pedidos.id))
+    .leftJoin(clientes, eq(ventas.clienteId, clientes.id))
+    .where(eq(ventas.empresaId, empresaId))
+    .orderBy(desc(ventas.createdAt))
+    .limit(50);
+}
+
+export async function anularVenta(ventaId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB no disponible");
+
+  await db.update(ventas)
+    .set({ estado: 'ANULADA' })
+    .where(eq(ventas.id, ventaId));
+}
+
+export async function restaurarPedido(pedidoId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB no disponible");
+
+  // Restaurar a estado 'LISTO' para que aparezca en "Por Cobrar" (sin traer historial antiguo)
+  // y pueda ser modificado/pagado nuevamente.
+  await db.update(pedidos)
+    .set({ orderStatus: 'LISTO' })
+    .where(eq(pedidos.id, pedidoId));
+}
+
+export async function getComprobanteByVentaId(ventaId: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.select().from(comprobantes).where(eq(comprobantes.ventaId, ventaId)).limit(1);
+  return result[0];
+}
+
+export async function getVentaItems(ventaId: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  // Siempre priorizamos items del pedido original para tener el nombre real del producto
+  // y evitar descripciones genericas de SUNAT (como "Item de Comanda")
+  const [venta] = await db.select().from(ventas).where(eq(ventas.id, ventaId)).limit(1);
+
+  if (venta) {
+    return db.select({
+      descripcion: productos.nombre,
+      cantidad: itemsPedido.cantidad,
+      precioUnitario: itemsPedido.precioUnitario,
+      subtotal: itemsPedido.subtotal,
+      id: itemsPedido.id
+    })
+      .from(itemsPedido)
+      .innerJoin(productos, eq(itemsPedido.productoId, productos.id))
+      .where(eq(itemsPedido.pedidoId, venta.pedidoId));
+  }
+
+  return [];
+}
