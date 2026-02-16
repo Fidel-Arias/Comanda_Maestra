@@ -37,6 +37,7 @@ interface ItemPedido {
   subtotal: number;
   notas?: string;
   subCuenta?: number;
+  subCuentaNombre?: string;
   pagado?: boolean;
 }
 
@@ -115,6 +116,7 @@ export default function TomaPedido() {
           subtotal: parseFloat(item.subtotal),
           notas: item.notas || undefined,
           subCuenta: (item as any).subCuenta || 0,
+          subCuentaNombre: (item as any).subCuentaNombre,
           pagado: (item as any).pagado || false,
         };
       });
@@ -149,6 +151,24 @@ export default function TomaPedido() {
       total: totalConIgv,
     };
   }, [items, empresa]);
+
+  const itemsGrouped = useMemo(() => {
+    const groups: Record<number, { name: string, items: (ItemPedido & { originalIndex: number })[] }> = {};
+    items.forEach((item, index) => {
+      const subId = item.subCuenta || 0;
+      if (!groups[subId]) {
+        groups[subId] = {
+          name: item.subCuentaNombre || (subId === 0 ? "Cuenta Principal" : `Cuenta ${subId}`),
+          items: []
+        };
+      }
+      groups[subId].items.push({ ...item, originalIndex: index });
+    });
+    // Order keys to ensure Principal (0) is first
+    return Object.entries(groups)
+      .sort(([a], [b]) => Number(a) - Number(b))
+      .map(([id, group]) => ({ id: Number(id), ...group }));
+  }, [items]);
 
   const getStockStatus = (stock: number | null, stockMinimo: number | null) => {
     const s = stock || 0;
@@ -432,56 +452,63 @@ export default function TomaPedido() {
             ) : (
               <>
                 <ScrollArea className="h-[200px] lg:h-[calc(100vh-450px)]">
-                  <div className="space-y-3">
-                    {items.map((item, index) => (
-                      <div
-                        key={`${item.productoId}-${index}`}
-                        className="flex items-center gap-3 p-3 rounded-lg bg-muted/30"
-                      >
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium text-sm truncate">{item.nombre}</p>
-                          <p className="text-xs text-muted-foreground">
-                            S/ {item.precioUnitario.toFixed(2)} c/u
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {!isCajero && (
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              className="h-7 w-7"
-                              onClick={() => handleUpdateCantidad(index, -1)}
-                            >
-                              <Minus className="h-3 w-3" />
-                            </Button>
-                          )}
-                          <span className="w-6 text-center font-medium">{item.cantidad}</span>
-                          {!isCajero && (
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              className="h-7 w-7"
-                              onClick={() => handleUpdateCantidad(index, 1)}
-                            >
-                              <Plus className="h-3 w-3" />
-                            </Button>
-                          )}
-                        </div>
-                        <div className="text-right min-w-[60px]">
-                          <p className="font-semibold text-sm">
-                            S/ {item.subtotal.toFixed(2)}
-                          </p>
-                        </div>
-                        {!isCajero && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-destructive"
-                            onClick={() => handleRemoveItem(index)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
+                  <div className="space-y-4">
+                    {itemsGrouped.map((group) => (
+                      <div key={group.id} className="mb-2">
+                        {itemsGrouped.length > 1 && (
+                          <div className="flex justify-between items-center bg-muted/80 p-2 rounded mb-1">
+                            <span className="font-bold text-sm text-primary">{group.name}</span>
+                            <span className="text-xs font-mono text-foreground font-semibold">
+                              S/ {group.items.reduce((sum, item) => sum + item.subtotal, 0).toFixed(2)}
+                            </span>
+                          </div>
                         )}
+                        <div className="space-y-2">
+                          {group.items.map((item) => (
+                            <div key={`${item.productoId}-${item.originalIndex}`} className={cn("flex items-center gap-3 p-3 rounded-lg border border-border/40", item.pagado ? "bg-emerald-500/5 border-emerald-500/20" : "bg-card")}>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-medium text-sm truncate">{item.nombre}</p>
+                                <div className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
+                                  <span>S/ {item.precioUnitario.toFixed(2)} c/u</span>
+                                  {item.pagado && <span className="text-emerald-600 font-bold flex items-center text-[10px] bg-emerald-100 px-1.5 py-0.5 rounded-full dark:bg-emerald-900/30 dark:text-emerald-400"><Check className="h-3 w-3 mr-1" />PAGADO</span>}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-7 w-7"
+                                  onClick={() => handleUpdateCantidad(item.originalIndex, -1)}
+                                  disabled={!!item.pagado}
+                                >
+                                  <Minus className="h-3 w-3" />
+                                </Button>
+                                <span className="w-6 text-center font-medium">{item.cantidad}</span>
+                                <Button
+                                  variant="outline"
+                                  size="icon"
+                                  className="h-7 w-7"
+                                  onClick={() => handleUpdateCantidad(item.originalIndex, 1)}
+                                  disabled={!!item.pagado}
+                                >
+                                  <Plus className="h-3 w-3" />
+                                </Button>
+                              </div>
+                              <div className="text-right min-w-[60px]">
+                                <p className="font-semibold text-sm">S/ {item.subtotal.toFixed(2)}</p>
+                              </div>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                onClick={() => handleRemoveItem(item.originalIndex)}
+                                disabled={!!item.pagado}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -555,48 +582,68 @@ export default function TomaPedido() {
                             .totals { margin-top: 10px; border-top: 1px dashed black; padding-top: 5px; }
                             .total-row { display: flex; justify-content: space-between; margin-bottom: 2px; }
                             .grand-total { font-weight: bold; font-size: 14px; margin-top: 5px; }
+                            .page-break { page-break-after: always; display: block; height: 1px; margin: 20px 0; border-bottom: 1px dotted #ccc; }
+                            @media print {
+                                .page-break { border: none; margin: 0; }
+                            }
                           `);
                           printWindow.document.write('</style>');
                           printWindow.document.write('</head><body>');
 
-                          // Header
-                          printWindow.document.write('<div class="header">');
-                          printWindow.document.write(logoHtml);
-                          printWindow.document.write(`<h3>${empresa.nombre}</h3>`);
-                          if (empresa.ruc) printWindow.document.write(`<p>RUC ${empresa.ruc}</p>`);
-                          if (empresa.direccion) printWindow.document.write(`<p>${empresa.direccion}</p>`);
-                          if (empresa.telefono) printWindow.document.write(`<p>Tel: ${empresa.telefono}</p>`);
-                          printWindow.document.write('<div class="separator"></div>');
-                          printWindow.document.write('<h3>PRECUENTA DE CONSUMO</h3>');
-                          printWindow.document.write(`<p>MESA: ${mesa?.numero} - MOZO: ${empleado.nombre.toUpperCase()}</p>`);
-                          printWindow.document.write(`<p>FECHA: ${new Date().toLocaleString()}</p>`);
-                          printWindow.document.write('</div>');
+                          const igvPorcentaje = parseFloat(empresa?.impuestoPorcentaje || "10.50");
+                          const factorIgv = 1 + (igvPorcentaje / 100);
 
-                          // Items Table
-                          printWindow.document.write('<table>');
-                          printWindow.document.write('<thead><tr><th style="width: 50%;">DESCRIPCIÓN</th><th class="text-right">P.U.</th><th class="text-right">TOTAL</th></tr></thead>');
-                          printWindow.document.write('<tbody>');
-                          items.forEach(item => {
-                            printWindow.document.write('<tr>');
-                            printWindow.document.write(`<td>[${item.cantidad}] ${item.nombre.toUpperCase()}</td>`);
-                            printWindow.document.write(`<td class="text-right">${item.precioUnitario.toFixed(2)}</td>`);
-                            printWindow.document.write(`<td class="text-right">${item.subtotal.toFixed(2)}</td>`);
-                            printWindow.document.write('</tr>');
+                          itemsGrouped.forEach((group, index) => {
+                            if (index > 0) {
+                              printWindow.document.write('<div class="page-break"></div>');
+                            }
+
+                            const groupTotal = group.items.reduce((acc, item) => acc + item.subtotal, 0);
+                            const groupSubtotal = groupTotal / factorIgv;
+                            const groupImpuesto = groupTotal - groupSubtotal;
+
+                            // Header
+                            printWindow.document.write('<div class="header">');
+                            printWindow.document.write(logoHtml);
+                            printWindow.document.write(`<h3>${empresa.nombre}</h3>`);
+                            if (empresa.ruc) printWindow.document.write(`<p>RUC ${empresa.ruc}</p>`);
+                            if (empresa.direccion) printWindow.document.write(`<p>${empresa.direccion}</p>`);
+                            if (empresa.telefono) printWindow.document.write(`<p>Tel: ${empresa.telefono}</p>`);
+                            printWindow.document.write('<div class="separator"></div>');
+                            printWindow.document.write('<h3>PRECUENTA DE CONSUMO</h3>');
+                            if (itemsGrouped.length > 1) {
+                              printWindow.document.write(`<h3>${group.name.toUpperCase()}</h3>`);
+                            }
+                            printWindow.document.write(`<p>MESA: ${mesa?.numero} - MOZO: ${empleado.nombre.toUpperCase()}</p>`);
+                            printWindow.document.write(`<p>FECHA: ${new Date().toLocaleString()}</p>`);
+                            printWindow.document.write('</div>');
+
+                            // Items Table
+                            printWindow.document.write('<table>');
+                            printWindow.document.write('<thead><tr><th style="width: 50%;">DESCRIPCIÓN</th><th class="text-right">P.U.</th><th class="text-right">TOTAL</th></tr></thead>');
+                            printWindow.document.write('<tbody>');
+                            group.items.forEach(item => {
+                              printWindow.document.write('<tr>');
+                              printWindow.document.write(`<td>[${item.cantidad}] ${item.nombre.toUpperCase()}</td>`);
+                              printWindow.document.write(`<td class="text-right">${item.precioUnitario.toFixed(2)}</td>`);
+                              printWindow.document.write(`<td class="text-right">${item.subtotal.toFixed(2)}</td>`);
+                              printWindow.document.write('</tr>');
+                            });
+                            printWindow.document.write('</tbody></table>');
+
+                            // Totals
+                            printWindow.document.write('<div class="totals">');
+                            printWindow.document.write('<div class="total-row"><span>GRAVADA:</span><span>S/ ' + groupSubtotal.toFixed(2) + '</span></div>');
+                            printWindow.document.write('<div class="total-row"><span>IGV (10.5%):</span><span>S/ ' + groupImpuesto.toFixed(2) + '</span></div>');
+                            printWindow.document.write('<div class="total-row grand-total"><span>TOTAL:</span><span>S/ ' + groupTotal.toFixed(2) + '</span></div>');
+                            printWindow.document.write('</div>');
+
+                            // Footer
+                            printWindow.document.write('<div class="separator"></div>');
+                            printWindow.document.write('<div class="text-center">');
+                            printWindow.document.write('<p>Gracias por su preferencia</p>');
+                            printWindow.document.write('</div>');
                           });
-                          printWindow.document.write('</tbody></table>');
-
-                          // Totals
-                          printWindow.document.write('<div class="totals">');
-                          printWindow.document.write('<div class="total-row"><span>GRAVADA:</span><span>S/ ' + subtotal.toFixed(2) + '</span></div>');
-                          printWindow.document.write('<div class="total-row"><span>IGV (10.5%):</span><span>S/ ' + impuesto.toFixed(2) + '</span></div>');
-                          printWindow.document.write('<div class="total-row grand-total"><span>TOTAL:</span><span>S/ ' + total.toFixed(2) + '</span></div>');
-                          printWindow.document.write('</div>');
-
-                          // Footer
-                          printWindow.document.write('<div class="separator"></div>');
-                          printWindow.document.write('<div class="text-center">');
-                          printWindow.document.write('<p>Gracias por su preferencia</p>');
-                          printWindow.document.write('</div>');
 
                           printWindow.document.write('</body></html>');
 
