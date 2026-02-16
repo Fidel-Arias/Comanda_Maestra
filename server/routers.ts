@@ -369,6 +369,13 @@ export const appRouter = router({
         await db.updatePedidoTotales(input.id, input.subtotal, input.impuesto, input.total);
         return { success: true };
       }),
+
+    delete: publicProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        await db.deletePedido(input.id);
+        return { success: true };
+      }),
   }),
 
   // ============================================

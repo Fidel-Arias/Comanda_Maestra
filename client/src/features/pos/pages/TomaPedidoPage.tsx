@@ -25,6 +25,14 @@ import {
   Check,
 } from "lucide-react";
 import { DividirCuentaDialog } from "../components/DividirCuentaDialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/overlays/dialog";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -56,6 +64,7 @@ export default function TomaPedido() {
   const [items, setItems] = useState<ItemPedido[]>([]);
   const [pedidoId, setPedidoId] = useState<number | null>(null);
   const [showDividirCuenta, setShowDividirCuenta] = useState(false);
+  const [showAnularConfirm, setShowAnularConfirm] = useState(false);
 
   const updateSubcuentasMutation = trpc.itemPedido.updateSubcuentas.useMutation({
     onSuccess: () => {
@@ -95,6 +104,7 @@ export default function TomaPedido() {
   const deleteItemMutation = trpc.itemPedido.delete.useMutation();
   const updateTotalesMutation = trpc.pedido.updateTotales.useMutation();
   const updateEstadoMutation = trpc.pedido.updateEstado.useMutation();
+  const deletePedidoMutation = trpc.pedido.delete.useMutation();
 
   // Cargar items existentes
   useEffect(() => {
@@ -307,6 +317,23 @@ export default function TomaPedido() {
     }
   };
 
+  const handleAnularPedido = () => {
+    setShowAnularConfirm(true);
+  };
+
+  const confirmAnularPedido = async () => {
+    if (!pedidoId) return;
+
+    try {
+      await deletePedidoMutation.mutateAsync({ id: pedidoId });
+      toast.success("Pedido anulado y mesa liberada");
+      setShowAnularConfirm(false);
+      navigate(isCajero ? "/cajero" : "/mozo");
+    } catch (error) {
+      toast.error("Error al anular pedido");
+    }
+  };
+
   if (!empleado || !empresa) {
     navigate("/");
     return null;
@@ -318,15 +345,27 @@ export default function TomaPedido() {
       <header className="sticky top-0 z-40 border-b border-border/50 bg-card/95 backdrop-blur-sm">
         <div className="container py-3">
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="icon" onClick={() => navigate("/mozo")}>
+            <Button variant="ghost" size="icon" onClick={() => navigate(isCajero ? "/cajero" : "/mozo")}>
               <ArrowLeft className="h-5 w-5" />
             </Button>
-            <div>
+            <div className="flex-1">
               <h1 className="font-bold text-foreground">Toma de Pedido</h1>
               <p className="text-xs text-muted-foreground">
                 Mesa {mesa?.numero} • {empleado.nombre}
               </p>
             </div>
+
+            {pedidoId && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={handleAnularPedido}
+                className="gap-2 bg-red-500 hover:bg-red-600 text-white"
+              >
+                <Trash2 className="h-4 w-4" />
+                <span className="hidden sm:inline">Anular Pedido</span>
+              </Button>
+            )}
           </div>
         </div>
       </header>
@@ -672,6 +711,30 @@ export default function TomaPedido() {
           </div>
         </div>
       </div>
+      <Dialog open={showAnularConfirm} onOpenChange={setShowAnularConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Anular Pedido Completo</DialogTitle>
+            <DialogDescription>
+              ¿Estás seguro de que deseas anular este pedido?
+              <br /><br />
+              Esta acción eliminará todos los items registrados y liberará la mesa inmediatamente. Esta acción no se puede deshacer.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowAnularConfirm(false)}>Cancelar</Button>
+            <Button
+              variant="destructive"
+              onClick={confirmAnularPedido}
+              disabled={deletePedidoMutation.isPending}
+              className="bg-red-500 hover:bg-red-600 text-white"
+            >
+              {deletePedidoMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Sí, Anular Pedido
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <DividirCuentaDialog
         open={showDividirCuenta}
         onOpenChange={setShowDividirCuenta}

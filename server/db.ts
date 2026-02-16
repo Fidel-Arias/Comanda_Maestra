@@ -1630,3 +1630,26 @@ export async function updateItemsSubcuentas(updates: { itemId: number, subCuenta
     }
   });
 }
+
+export async function deletePedido(id: number) {
+  const db = await getDb();
+  if (!db) return;
+
+  const pedido = await getPedidoById(id);
+  // Using direct SQL might be safer if constraints are weird, but Drizzle should handle it
+  // Assuming pedido exists
+  if (!pedido) return;
+
+  return await db.transaction(async (tx) => {
+    // Delete itemsPedido first due to FK constraints
+    await tx.delete(itemsPedido).where(eq(itemsPedido.pedidoId, id));
+    // Delete ventas if any
+    await tx.delete(ventas).where(eq(ventas.pedidoId, id));
+    // Delete pedido
+    await tx.delete(pedidos).where(eq(pedidos.id, id));
+    // Update mesa to DISPONIBLE
+    await tx.update(mesas)
+      .set({ tableStatus: "DISPONIBLE", mozoAsignadoId: null })
+      .where(eq(mesas.id, pedido.mesaId));
+  });
+}
