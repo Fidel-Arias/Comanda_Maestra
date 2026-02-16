@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 import {
   DollarSign, CreditCard, Smartphone, LogOut,
   Loader2, Check, Receipt, Banknote, Clock, Users,
-  LockOpen, Lock, AlertTriangle, Calculator, Wallet, Search, History, RotateCcw, Eye, Edit
+  LockOpen, Lock, AlertTriangle, Calculator, Wallet, Search, History, RotateCcw, Eye, Edit, CalendarDays
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -523,13 +523,18 @@ export default function Cajero() {
         </div>
 
         {/* Navegación y Contenido */}
-        <div className="flex bg-muted/20 p-1 rounded-lg w-fit mb-6 mt-6">
-          <button onClick={() => setActiveTab('cobrar')} className={cn("px-4 py-2 text-sm font-medium rounded-md transition-all flex items-center gap-2", activeTab === 'cobrar' ? "bg-background shadow text-primary" : "text-muted-foreground hover:bg-muted/50")}>
-            <Receipt className="h-4 w-4" /> Cuentas por Cobrar
-          </button>
-          <button onClick={() => setActiveTab('historial')} className={cn("px-4 py-2 text-sm font-medium rounded-md transition-all flex items-center gap-2", activeTab === 'historial' ? "bg-background shadow text-primary" : "text-muted-foreground hover:bg-muted/50")}>
-            <History className="h-4 w-4" /> Historial de Ventas
-          </button>
+        <div className="flex justify-between items-center mb-6 mt-6">
+          <div className="flex bg-muted/20 p-1 rounded-lg w-fit">
+            <button onClick={() => setActiveTab('cobrar')} className={cn("px-4 py-2 text-sm font-medium rounded-md transition-all flex items-center gap-2", activeTab === 'cobrar' ? "bg-background shadow text-primary" : "text-muted-foreground hover:bg-muted/50")}>
+              <Receipt className="h-4 w-4" /> Cuentas por Cobrar
+            </button>
+            <button onClick={() => setActiveTab('historial')} className={cn("px-4 py-2 text-sm font-medium rounded-md transition-all flex items-center gap-2", activeTab === 'historial' ? "bg-background shadow text-primary" : "text-muted-foreground hover:bg-muted/50")}>
+              <History className="h-4 w-4" /> Historial de Ventas
+            </button>
+          </div>
+          <Button onClick={() => navigate("/reservas")} className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2">
+            <CalendarDays className="h-4 w-4" /> Reservas
+          </Button>
         </div>
 
         {activeTab === 'cobrar' ? (

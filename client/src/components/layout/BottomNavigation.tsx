@@ -29,12 +29,7 @@ const navItems = [
     icon: BarChart3,
     roles: ["DUENO", "ADMIN"]
   },
-  {
-    path: "/reservas",
-    label: "Reservas",
-    icon: CalendarDays,
-    roles: ["CAJERO", "DUENO", "ADMIN"]
-  },
+
 ];
 
 export function BottomNavigation() {
