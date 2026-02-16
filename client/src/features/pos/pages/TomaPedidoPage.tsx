@@ -9,9 +9,22 @@ import { Input } from "@/components/ui/forms/input";
 import { ScrollArea } from "@/components/ui/display/scroll-area";
 import { Separator } from "@/components/ui/display/separator";
 import {
-  ArrowLeft, Search, Plus, Minus, Trash2,
-  Send, Loader2, AlertCircle, Check, Printer
+  ArrowLeft, Search,
+  ShoppingCart,
+  Trash2,
+  Minus,
+  Plus,
+  Send,
+  Printer,
+  ChevronLeft,
+  X,
+  Split,
+  Save,
+  Loader2,
+  AlertCircle,
+  Check,
 } from "lucide-react";
+import { DividirCuentaDialog } from "../components/DividirCuentaDialog";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
@@ -23,6 +36,8 @@ interface ItemPedido {
   precioUnitario: number;
   subtotal: number;
   notas?: string;
+  subCuenta?: number;
+  pagado?: boolean;
 }
 
 export default function TomaPedido() {
@@ -32,13 +47,20 @@ export default function TomaPedido() {
   const { empleado, empresa } = usePOS();
   // Permitimos que el cajero edite para correcciones
   const isCajeroReal = empleado?.rol === "CAJERO";
-  const isCajero = false; // Hack para habilitar la interfaz de edición completa
+  const isCajero = isCajeroReal || (typeof window !== 'undefined' && window.location.search.includes("rol=CAJERO"));
   const isCorrectionMode = typeof window !== 'undefined' && window.location.search.includes("mode=correction");
 
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategoria, setSelectedCategoria] = useState<number | null>(null);
   const [items, setItems] = useState<ItemPedido[]>([]);
   const [pedidoId, setPedidoId] = useState<number | null>(null);
+  const [showDividirCuenta, setShowDividirCuenta] = useState(false);
+
+  const updateSubcuentasMutation = trpc.itemPedido.updateSubcuentas.useMutation({
+    onSuccess: () => {
+      refetchPedido();
+    }
+  });
 
   // Queries
   const { data: mesa } = trpc.mesa.getById.useQuery(
@@ -56,7 +78,7 @@ export default function TomaPedido() {
     { enabled: !!empresa?.id }
   );
 
-  const { data: pedidoActivo } = trpc.pedido.getByMesa.useQuery(
+  const { data: pedidoActivo, refetch: refetchPedido } = trpc.pedido.getByMesa.useQuery(
     { mesaId },
     { enabled: mesaId > 0 }
   );
@@ -92,6 +114,8 @@ export default function TomaPedido() {
           precioUnitario: parseFloat(item.precioUnitario),
           subtotal: parseFloat(item.subtotal),
           notas: item.notas || undefined,
+          subCuenta: (item as any).subCuenta || 0,
+          pagado: (item as any).pagado || false,
         };
       });
       setItems(loadedItems);
@@ -373,16 +397,31 @@ export default function TomaPedido() {
         )}
 
         {/* Order Section */}
-        <div className={cn("lg:w-96 border-t lg:border-t-0 border-border/50 bg-card/30", isCajero && "w-full")}>
+        <div className={cn("border-t lg:border-t-0 border-border/50 bg-card/30", !isCajero ? "lg:w-96" : "w-full")}>
           <div className="p-4">
-            <h2 className="font-bold text-lg mb-4">
-              {isCajero ? "Visualizando Pedido" : "Pedido Actual"} - Mesa {mesa?.numero}
-            </h2>
-            {isCajero && (
-              <Badge variant="outline" className="mb-4 text-amber-400 border-amber-500/50">
-                Modo Solo Lectura
-              </Badge>
-            )}
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="font-bold text-lg">
+                {isCajero ? "Visualizando Pedido" : "Pedido Actual"} - Mesa {mesa?.numero}
+              </h2>
+              {!isCajero && items.length > 0 && pedidoId && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (items.some(i => !i.id)) {
+                      toast.warning("Guarda los nuevos items (Enviar a Cocina) antes de dividir.");
+                      return;
+                    }
+                    setShowDividirCuenta(true);
+                  }}
+                  title="Dividir Cuenta"
+                  className="h-8"
+                >
+                  <Split className="h-4 w-4 mr-2" /> Dividir
+                </Button>
+              )}
+            </div>
+
 
             {items.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
@@ -482,100 +521,118 @@ export default function TomaPedido() {
                     {isCorrectionMode ? "Corregir Pedido" : (isCajeroReal ? "Guardar Cambios" : "Enviar a Cocina")}
                   </Button>
                 ) : (
-                  <Button
-                    variant="secondary"
-                    className="w-full mt-4 h-12"
-                    onClick={() => {
-                      const printWindow = window.open('', '', 'height=600,width=400');
-                      if (printWindow) {
-                        const logoHtml = empresa.logoUrl ? `<img src="${empresa.logoUrl}" style="max-width: 150px; max-height: 80px; margin-bottom: 5px;" />` : '';
+                  <div className="flex flex-col gap-2 mt-4">
+                    <Button
+                      className="w-full bg-emerald-600 hover:bg-emerald-700 text-white"
+                      onClick={handleEnviarPedido}
+                      disabled={addItemMutation.isPending}
+                    >
+                      <Save className="h-4 w-4 mr-2" />
+                      Guardar Cambios
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      className="w-full"
+                      onClick={() => {
+                        const printWindow = window.open('', '', 'height=600,width=400');
+                        if (printWindow) {
+                          const logoHtml = empresa.logoUrl ? `<img src="${empresa.logoUrl}" style="max-width: 150px; max-height: 80px; margin-bottom: 5px;" />` : '';
 
-                        printWindow.document.write('<html><head><title>Precuenta</title>');
-                        printWindow.document.write('<style>');
-                        printWindow.document.write(`
-                          @page { size: auto; margin: 0mm; } 
-                          body { font-family: 'Courier New', Courier, monospace; font-size: 12px; margin: 5mm; width: 280px; }
-                          .header { text-align: center; margin-bottom: 10px; }
-                          h3 { margin: 5px 0; font-size: 14px; font-weight: bold; text-transform: uppercase; }
-                          p { margin: 2px 0; }
-                          .separator { border-top: 1px dashed black; margin: 10px 0; }
-                          table { width: 100%; border-collapse: collapse; }
-                          th { text-align: left; border-bottom: 1px dashed black; padding-bottom: 3px; font-size: 11px; }
-                          td { vertical-align: top; padding: 4px 0; font-size: 11px; }
-                          .text-right { text-align: right; }
-                          .text-center { text-align: center; }
-                          .totals { margin-top: 10px; border-top: 1px dashed black; padding-top: 5px; }
-                          .total-row { display: flex; justify-content: space-between; margin-bottom: 2px; }
-                          .grand-total { font-weight: bold; font-size: 14px; margin-top: 5px; }
-                        `);
-                        printWindow.document.write('</style>');
-                        printWindow.document.write('</head><body>');
+                          printWindow.document.write('<html><head><title>Precuenta</title>');
+                          printWindow.document.write('<style>');
+                          printWindow.document.write(`
+                            @page { size: auto; margin: 0mm; } 
+                            body { font-family: 'Courier New', Courier, monospace; font-size: 12px; margin: 5mm; width: 280px; }
+                            .header { text-align: center; margin-bottom: 10px; }
+                            h3 { margin: 5px 0; font-size: 14px; font-weight: bold; text-transform: uppercase; }
+                            p { margin: 2px 0; }
+                            .separator { border-top: 1px dashed black; margin: 10px 0; }
+                            table { width: 100%; border-collapse: collapse; }
+                            th { text-align: left; border-bottom: 1px dashed black; padding-bottom: 3px; font-size: 11px; }
+                            td { vertical-align: top; padding: 4px 0; font-size: 11px; }
+                            .text-right { text-align: right; }
+                            .text-center { text-align: center; }
+                            .totals { margin-top: 10px; border-top: 1px dashed black; padding-top: 5px; }
+                            .total-row { display: flex; justify-content: space-between; margin-bottom: 2px; }
+                            .grand-total { font-weight: bold; font-size: 14px; margin-top: 5px; }
+                          `);
+                          printWindow.document.write('</style>');
+                          printWindow.document.write('</head><body>');
 
-                        // Header
-                        printWindow.document.write('<div class="header">');
-                        printWindow.document.write(logoHtml);
-                        printWindow.document.write(`<h3>${empresa.nombre}</h3>`);
-                        if (empresa.ruc) printWindow.document.write(`<p>RUC ${empresa.ruc}</p>`);
-                        if (empresa.direccion) printWindow.document.write(`<p>${empresa.direccion}</p>`);
-                        if (empresa.telefono) printWindow.document.write(`<p>Tel: ${empresa.telefono}</p>`);
-                        printWindow.document.write('<div class="separator"></div>');
-                        printWindow.document.write('<h3>PRECUENTA DE CONSUMO</h3>');
-                        printWindow.document.write(`<p>MESA: ${mesa?.numero} - MOZO: ${empleado.nombre.toUpperCase()}</p>`);
-                        printWindow.document.write(`<p>FECHA: ${new Date().toLocaleString()}</p>`);
-                        printWindow.document.write('</div>');
+                          // Header
+                          printWindow.document.write('<div class="header">');
+                          printWindow.document.write(logoHtml);
+                          printWindow.document.write(`<h3>${empresa.nombre}</h3>`);
+                          if (empresa.ruc) printWindow.document.write(`<p>RUC ${empresa.ruc}</p>`);
+                          if (empresa.direccion) printWindow.document.write(`<p>${empresa.direccion}</p>`);
+                          if (empresa.telefono) printWindow.document.write(`<p>Tel: ${empresa.telefono}</p>`);
+                          printWindow.document.write('<div class="separator"></div>');
+                          printWindow.document.write('<h3>PRECUENTA DE CONSUMO</h3>');
+                          printWindow.document.write(`<p>MESA: ${mesa?.numero} - MOZO: ${empleado.nombre.toUpperCase()}</p>`);
+                          printWindow.document.write(`<p>FECHA: ${new Date().toLocaleString()}</p>`);
+                          printWindow.document.write('</div>');
 
-                        // Items Table
-                        printWindow.document.write('<table>');
-                        printWindow.document.write('<thead><tr><th style="width: 50%;">DESCRIPCIÓN</th><th class="text-right">P.U.</th><th class="text-right">TOTAL</th></tr></thead>');
-                        printWindow.document.write('<tbody>');
-                        items.forEach(item => {
-                          printWindow.document.write('<tr>');
-                          printWindow.document.write(`<td>[${item.cantidad}] ${item.nombre.toUpperCase()}</td>`);
-                          printWindow.document.write(`<td class="text-right">${item.precioUnitario.toFixed(2)}</td>`);
-                          printWindow.document.write(`<td class="text-right">${item.subtotal.toFixed(2)}</td>`);
-                          printWindow.document.write('</tr>');
-                        });
-                        printWindow.document.write('</tbody></table>');
+                          // Items Table
+                          printWindow.document.write('<table>');
+                          printWindow.document.write('<thead><tr><th style="width: 50%;">DESCRIPCIÓN</th><th class="text-right">P.U.</th><th class="text-right">TOTAL</th></tr></thead>');
+                          printWindow.document.write('<tbody>');
+                          items.forEach(item => {
+                            printWindow.document.write('<tr>');
+                            printWindow.document.write(`<td>[${item.cantidad}] ${item.nombre.toUpperCase()}</td>`);
+                            printWindow.document.write(`<td class="text-right">${item.precioUnitario.toFixed(2)}</td>`);
+                            printWindow.document.write(`<td class="text-right">${item.subtotal.toFixed(2)}</td>`);
+                            printWindow.document.write('</tr>');
+                          });
+                          printWindow.document.write('</tbody></table>');
 
-                        // Totals
-                        printWindow.document.write('<div class="totals">');
-                        printWindow.document.write('<div class="total-row"><span>GRAVADA:</span><span>S/ ' + subtotal.toFixed(2) + '</span></div>');
-                        printWindow.document.write('<div class="total-row"><span>IGV (10.5%):</span><span>S/ ' + impuesto.toFixed(2) + '</span></div>');
-                        printWindow.document.write('<div class="total-row grand-total"><span>TOTAL:</span><span>S/ ' + total.toFixed(2) + '</span></div>');
-                        printWindow.document.write('</div>');
+                          // Totals
+                          printWindow.document.write('<div class="totals">');
+                          printWindow.document.write('<div class="total-row"><span>GRAVADA:</span><span>S/ ' + subtotal.toFixed(2) + '</span></div>');
+                          printWindow.document.write('<div class="total-row"><span>IGV (10.5%):</span><span>S/ ' + impuesto.toFixed(2) + '</span></div>');
+                          printWindow.document.write('<div class="total-row grand-total"><span>TOTAL:</span><span>S/ ' + total.toFixed(2) + '</span></div>');
+                          printWindow.document.write('</div>');
 
-                        // Footer
-                        printWindow.document.write('<div class="separator"></div>');
-                        printWindow.document.write('<div class="text-center">');
-                        printWindow.document.write('<p>Gracias por su preferencia</p>');
-                        printWindow.document.write('</div>');
+                          // Footer
+                          printWindow.document.write('<div class="separator"></div>');
+                          printWindow.document.write('<div class="text-center">');
+                          printWindow.document.write('<p>Gracias por su preferencia</p>');
+                          printWindow.document.write('</div>');
 
-                        printWindow.document.write('</body></html>');
+                          printWindow.document.write('</body></html>');
 
-                        printWindow.document.close();
+                          printWindow.document.close();
 
-                        // Wait for images to load before printing
-                        if (empresa.logoUrl) {
-                          setTimeout(() => {
+                          // Wait for images to load before printing
+                          if (empresa.logoUrl) {
+                            setTimeout(() => {
+                              printWindow.focus();
+                              printWindow.print();
+                            }, 500);
+                          } else {
                             printWindow.focus();
                             printWindow.print();
-                          }, 500);
-                        } else {
-                          printWindow.focus();
-                          printWindow.print();
+                          }
                         }
-                      }
-                    }}
-                  >
-                    <Printer className="h-5 w-5 mr-2" />
-                    Imprimir Precuenta
-                  </Button>
+                      }}
+                    >
+                      <Printer className="h-5 w-5 mr-2" />
+                      Imprimir Precuenta
+                    </Button>
+                  </div>
                 )}
               </>
             )}
           </div>
         </div>
       </div>
+      <DividirCuentaDialog
+        open={showDividirCuenta}
+        onOpenChange={setShowDividirCuenta}
+        items={items.map(i => ({ ...i, nombre: i.nombre || "Item", pagado: i.pagado || false }))}
+        onSave={async (updates) => {
+          await updateSubcuentasMutation.mutateAsync(updates);
+        }}
+      />
     </div>
   );
 }

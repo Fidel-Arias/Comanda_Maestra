@@ -7,13 +7,14 @@ import { Button } from "@/components/ui/forms/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/display/card";
 import { Badge } from "@/components/ui/display/badge";
 import { Input } from "@/components/ui/forms/input";
-import { Label } from "@/components/ui/forms/label";
 import { Textarea } from "@/components/ui/forms/textarea";
+import { Label } from "@/components/ui/forms/label";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/navigation/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/overlays/dialog";
 import {
   DollarSign, CreditCard, Smartphone, LogOut,
   Loader2, Check, Receipt, Banknote, Clock, Users,
-  LockOpen, Lock, AlertTriangle, Calculator, Wallet, Search, History, RotateCcw, Eye, Edit, CalendarDays
+  LockOpen, Lock, AlertTriangle, Calculator, Wallet, Search, History, RotateCcw, Eye, Edit, CalendarDays, X
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -41,6 +42,9 @@ export default function Cajero() {
   const [montoInicial, setMontoInicial] = useState("");
   const [montoFinalContado, setMontoFinalContado] = useState("");
   const [observacionesCierre, setObservacionesCierre] = useState("");
+
+  // Agregar estado para SubCuenta seleccionada
+  const [selectedSubCuenta, setSelectedSubCuenta] = useState<number>(0);
   const [activeTab, setActiveTab] = useState<'cobrar' | 'historial'>('cobrar');
 
   // Estados para facturación
@@ -136,6 +140,12 @@ export default function Cajero() {
     { enabled: !!empresa?.id && !!cajaAbierta }
   );
 
+  // Query Items Pedido para ver subcuentas
+  const { data: itemsPedido } = trpc.itemPedido.listByPedido.useQuery(
+    { pedidoId: selectedPedido || 0 },
+    { enabled: !!selectedPedido }
+  );
+
   // Mutations
   const createPagoMutation = trpc.pago.create.useMutation();
   const abrirCajaMutation = trpc.caja.abrir.useMutation();
@@ -162,6 +172,21 @@ export default function Cajero() {
     }
     consultarEntidadMutation.mutate({ numero: rucCliente });
   };
+
+  // Actualizar monto a pagar cuando cambia la subcuenta o cargan los items
+  useEffect(() => {
+    if (itemsPedido && selectedPedido) {
+      const totalSub = itemsPedido
+        .filter(i => !(i as any).pagado && ((i as any).subCuenta || 0) === selectedSubCuenta)
+        .reduce((sum, i) => sum + Number(i.subtotal), 0);
+
+      // Si el total es 0, podría ser que todo está pagado o que no hay items en esa subcuenta.
+      // Pero si es el inicio (selectedSubCuenta 0) y no hay items, usar el total del pedido como fallback (si items no han cargado)
+      // Pero itemsPedido existe.
+
+      setMontoPagado(totalSub.toFixed(2));
+    }
+  }, [selectedSubCuenta, itemsPedido, selectedPedido]);
 
   const pedidoSeleccionado = useMemo(() => {
     return pedidosActivos?.find(p => p.id === selectedPedido);
@@ -216,6 +241,7 @@ export default function Cajero() {
       return;
     }
     setSelectedPedido(pedidoId);
+    setSelectedSubCuenta(0);
     const pedido = pedidosActivos?.find(p => p.id === pedidoId);
     if (pedido) {
       setMontoPagado(pedido.total || "0");
@@ -226,7 +252,21 @@ export default function Cajero() {
   const handleProcesarPago = async () => {
     if (!pedidoSeleccionado || !empleado || !empresa || !cajaAbierta) return;
 
-    const total = parseFloat(pedidoSeleccionado.total || "0");
+    // Calcular total a cobrar basado en subcuenta
+    let total = parseFloat(pedidoSeleccionado.total || "0");
+    if (itemsPedido) {
+      const subTotal = itemsPedido
+        .filter(i => !(i as any).pagado && ((i as any).subCuenta || 0) === selectedSubCuenta)
+        .reduce((sum, i) => sum + Number(i.subtotal), 0);
+      // Usar subtotal calculado
+      total = subTotal;
+    }
+
+    if (total <= 0) {
+      toast.error("Esta cuenta ya está pagada o no tiene items pendientes");
+      return;
+    }
+
     const pagado = parseFloat(montoPagado) || 0;
 
     if (selectedMetodo === "EFECTIVO" && pagado < total) {
@@ -255,6 +295,7 @@ export default function Cajero() {
         total: total.toFixed(2),
         subtotal: (total / 1.18).toFixed(2),
         igv: (total - (total / 1.18)).toFixed(2),
+        subCuenta: selectedSubCuenta || 0,
       });
 
       // 3. Generar Comprobante Electrónico (Boleta/Factura)
@@ -564,8 +605,8 @@ export default function Cajero() {
                         <div>
                           <div className="flex items-center gap-2">
                             <h3 className="font-bold text-lg">Mesa {getMesaNumero(pedido.mesaId)}</h3>
-                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-muted" onClick={(e) => { e.stopPropagation(); navigate(`/pedido/${pedido.mesaId}`); }} title="Editar Pedido">
-                              <Edit className="h-3 w-3 text-muted-foreground hover:text-primary" />
+                            <Button variant="ghost" size="sm" className="h-6 w-6 p-0 hover:bg-muted" onClick={(e) => { e.stopPropagation(); navigate(`/pedido/${pedido.mesaId}?rol=CAJERO`); }} title="Ver Pedido">
+                              <Eye className="h-3 w-3 text-muted-foreground hover:text-primary" />
                             </Button>
                             <Badge variant="outline" className={cn("text-xs", pedido.orderStatus === "LISTO" && "text-emerald-400 border-emerald-500/50", pedido.orderStatus === "PREPARANDO" && "text-amber-400 border-amber-500/50", pedido.orderStatus === "PENDIENTE" && "text-blue-400 border-blue-500/50", pedido.orderStatus === "ENTREGADO" && "text-green-400 border-green-500/50")}>
                               {pedido.orderStatus === "ENTREGADO" ? "CONSUMIENDO" : pedido.orderStatus}
@@ -897,11 +938,43 @@ export default function Cajero() {
           {pedidoSeleccionado && (
             <div className="py-4 space-y-6">
               {/* Total */}
-              <div className="text-center p-4 rounded-xl bg-muted/30">
-                <p className="text-sm text-muted-foreground mb-1">Total a pagar</p>
-                <p className="text-4xl font-bold text-primary">
-                  S/ {parseFloat(pedidoSeleccionado.total || "0").toFixed(2)}
+              <div className="text-center p-4 rounded-xl bg-muted/30 relative overflow-hidden flex flex-col items-center">
+                {itemsPedido && itemsPedido.some(i => (i as any).subCuenta > 0) && (
+                  <Tabs value={String(selectedSubCuenta)} onValueChange={(v) => setSelectedSubCuenta(Number(v))} className="mb-4 w-full">
+                    <TabsList className="grid w-full grid-cols-2 h-auto gap-1 bg-muted/50 p-1">
+                      <TabsTrigger value="0" className="text-xs py-2 data-[state=active]:bg-background data-[state=active]:shadow-sm">
+                        {((itemsPedido.find(i => ((i as any).subCuenta || 0) === 0) as any)?.subCuentaNombre) || "Principal"}
+                        <span className="ml-1 text-[10px] text-muted-foreground opacity-70">
+                          (S/ {itemsPedido.filter(i => !(i as any).pagado && ((i as any).subCuenta || 0) === 0).reduce((sum, i) => sum + Number(i.subtotal), 0).toFixed(2)})
+                        </span>
+                      </TabsTrigger>
+                      {Array.from(new Set(itemsPedido.filter(i => (i as any).subCuenta > 0).map(i => (i as any).subCuenta))).sort().map((sc: any) => (
+                        <TabsTrigger key={sc} value={String(sc)} className="text-xs py-2 data-[state=active]:bg-background data-[state=active]:shadow-sm">
+                          {(itemsPedido.find(i => (i as any).subCuenta === sc) as any)?.subCuentaNombre || `Cta ${sc}`}
+                          <span className="ml-1 text-[10px] text-muted-foreground opacity-70">
+                            (S/ {itemsPedido.filter(i => !(i as any).pagado && (i as any).subCuenta === sc).reduce((sum, i) => sum + Number(i.subtotal), 0).toFixed(2)})
+                          </span>
+                        </TabsTrigger>
+                      ))}
+                    </TabsList>
+                  </Tabs>
+                )}
+
+                <p className="text-sm text-muted-foreground mb-1">
+                  {selectedSubCuenta > 0 ? `Por cobrar - ${(itemsPedido?.find(i => (i as any).subCuenta === selectedSubCuenta) as any)?.subCuentaNombre || `Cuenta ${selectedSubCuenta}`}` : "Total a cobrar"}
                 </p>
+                <div className="relative">
+                  <p className={cn("text-4xl font-bold text-primary",
+                    (itemsPedido?.filter(i => !(i as any).pagado && ((i as any).subCuenta || 0) === selectedSubCuenta).reduce((sum, i) => sum + Number(i.subtotal), 0) || 0) === 0 && "text-emerald-500 line-through opacity-50 text-2xl"
+                  )}>
+                    S/ {(itemsPedido?.filter(i => !(i as any).pagado && ((i as any).subCuenta || 0) === selectedSubCuenta).reduce((sum, i) => sum + Number(i.subtotal), 0) || parseFloat(pedidoSeleccionado.total || "0")).toFixed(2)}
+                  </p>
+                  {(itemsPedido?.filter(i => !(i as any).pagado && ((i as any).subCuenta || 0) === selectedSubCuenta).reduce((sum, i) => sum + Number(i.subtotal), 0) || 0) === 0 && (
+                    <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600 dark:text-emerald-400 px-3 py-1 rounded-full text-sm font-bold border border-emerald-500/20 shadow-sm whitespace-nowrap">
+                      ¡PAGADO!
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Método de pago */}

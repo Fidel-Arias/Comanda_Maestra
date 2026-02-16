@@ -522,22 +522,28 @@ export async function updatePedidoEstado(id: number, orderStatus: "PENDIENTE" | 
 // ITEMS PEDIDO FUNCTIONS
 // ============================================
 
-export async function getItemsByPedido(pedidoId: number) {
+export async function getItemsByPedido(pedidoId: number, subCuenta?: number) {
   const db = await getDb();
   if (!db) return [];
-  return db.select({
-    id: itemsPedido.id,
-    pedidoId: itemsPedido.pedidoId,
-    productoId: itemsPedido.productoId,
-    cantidad: itemsPedido.cantidad,
-    precioUnitario: itemsPedido.precioUnitario,
-    subtotal: itemsPedido.subtotal,
-    notas: itemsPedido.notas,
-    productoNombre: productos.nombre,
+
+  let conditions = eq(itemsPedido.pedidoId, pedidoId);
+  if (subCuenta !== undefined) {
+    conditions = and(conditions, eq(itemsPedido.subCuenta, subCuenta))!;
+  }
+
+  const result = await db.select({
+    items: itemsPedido,
+    producto: productos
   })
     .from(itemsPedido)
-    .innerJoin(productos, eq(itemsPedido.productoId, productos.id))
-    .where(eq(itemsPedido.pedidoId, pedidoId));
+    .leftJoin(productos, eq(itemsPedido.productoId, productos.id))
+    .where(conditions);
+
+  return result.map(({ items, producto }) => ({
+    ...items,
+    productoNombre: producto?.nombre || "Desconocido",
+    // subCuenta ya viene en items
+  }));
 }
 
 export async function getComandasByArea(empresaId: number, area: "COCINA" | "BAR") {
@@ -1391,8 +1397,24 @@ export async function getVentasDesdeFecha(empresaId: number, fechaDesde: Date) {
 export async function createVenta(venta: InsertVenta): Promise<Venta> {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  const result = await db.insert(ventas).values(venta).returning();
-  return result[0];
+
+  return await db.transaction(async (tx) => {
+    const result = await tx.insert(ventas).values(venta).returning();
+
+    const sc = venta.subCuenta ?? 0;
+
+    await tx.update(itemsPedido)
+      .set({ pagado: true })
+      .where(
+        and(
+          eq(itemsPedido.pedidoId, venta.pedidoId),
+          eq(itemsPedido.subCuenta, sc),
+          eq(itemsPedido.pagado, false)
+        )
+      );
+
+    return result[0];
+  });
 }
 
 export async function getVentasByEmpresa(empresaId: number) {
@@ -1593,4 +1615,18 @@ export async function getVentaItems(ventaId: number) {
   }
 
   return [];
+}
+
+export async function updateItemsSubcuentas(updates: { itemId: number, subCuenta: number, subCuentaNombre: string }[]) {
+  const db = await getDb();
+  if (!db) return;
+
+  await db.transaction(async (tx) => {
+    for (const update of updates) {
+      // Necesitamos el itemsPedido importado, si no está en scope, usar schema
+      await tx.update(itemsPedido)
+        .set({ subCuenta: update.subCuenta, subCuentaNombre: update.subCuentaNombre })
+        .where(eq(itemsPedido.id, update.itemId));
+    }
+  });
 }

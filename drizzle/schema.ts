@@ -152,6 +152,9 @@ export const itemsPedido = pgTable("items_pedido", {
   subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull(),
   notas: text("notas"),
   estado: orderStatusEnum("estado").default("PENDIENTE").notNull(),
+  subCuenta: integer("sub_cuenta").default(0),
+  subCuentaNombre: varchar("sub_cuenta_nombre", { length: 50 }),
+  pagado: boolean("pagado").default(false),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -215,6 +218,7 @@ export const ventas = pgTable("ventas", {
   subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull(),
   igv: decimal("igv", { precision: 10, scale: 2 }).notNull(),
   estado: varchar("estado", { length: 50 }).default("COMPLETA"), // COMPLETA, ANULADA
+  subCuenta: integer("sub_cuenta").default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

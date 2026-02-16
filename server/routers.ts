@@ -433,6 +433,17 @@ export const appRouter = router({
         await db.updateItemEstado(input.id, input.estado);
         return { success: true };
       }),
+
+    updateSubcuentas: publicProcedure
+      .input(z.array(z.object({
+        itemId: z.number(),
+        subCuenta: z.number(),
+        subCuentaNombre: z.string()
+      })))
+      .mutation(async ({ input }) => {
+        await db.updateItemsSubcuentas(input);
+        return { success: true };
+      }),
   }),
 
   // ============================================
@@ -856,6 +867,7 @@ export const appRouter = router({
         total: z.string(),
         subtotal: z.string(),
         igv: z.string(),
+        subCuenta: z.number().optional(),
       }))
       .mutation(async ({ input }) => {
         return db.createVenta(input);
@@ -874,7 +886,8 @@ export const appRouter = router({
         const venta = await db.getVentaById(input.ventaId);
         if (!venta) throw new Error("Venta no encontrada");
 
-        const items = await db.getItemsByPedido(venta.pedidoId);
+        // Filtrar items por subCuenta si existe
+        const items = await db.getItemsByPedido(venta.pedidoId, venta.subCuenta || 0);
         const numero = await db.getNextComprobanteNumero(input.empresaId, input.tipo, input.serie);
 
         // Obtener configuración de impuesto de la empresa

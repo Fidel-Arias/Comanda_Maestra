@@ -1,73 +1,235 @@
 {
-  "version": "5",
-  "dialect": "mysql",
-  "id": "2e6cb676-6177-4f62-a91f-db65defe05b5",
+  "id": "bb139e48-a755-4aca-be29-135ec5ad8fec",
   "prevId": "00000000-0000-0000-0000-000000000000",
+  "version": "7",
+  "dialect": "postgresql",
   "tables": {
-    "categorias": {
-      "name": "categorias",
+    "public.cajas": {
+      "name": "cajas",
+      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": true
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
         },
-        "empresaId": {
-          "name": "empresaId",
-          "type": "int",
+        "empresa_id": {
+          "name": "empresa_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cajero_id": {
+          "name": "cajero_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "caja_status": {
+          "name": "caja_status",
+          "type": "caja_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'ABIERTA'"
+        },
+        "monto_inicial": {
+          "name": "monto_inicial",
+          "type": "numeric(10, 2)",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
+          "default": "'0.00'"
+        },
+        "monto_final": {
+          "name": "monto_final",
+          "type": "numeric(10, 2)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "total_ventas": {
+          "name": "total_ventas",
+          "type": "numeric(10, 2)",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'0.00'"
+        },
+        "total_efectivo": {
+          "name": "total_efectivo",
+          "type": "numeric(10, 2)",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'0.00'"
+        },
+        "total_tarjeta": {
+          "name": "total_tarjeta",
+          "type": "numeric(10, 2)",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'0.00'"
+        },
+        "total_yape": {
+          "name": "total_yape",
+          "type": "numeric(10, 2)",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'0.00'"
+        },
+        "total_plin": {
+          "name": "total_plin",
+          "type": "numeric(10, 2)",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'0.00'"
+        },
+        "diferencia": {
+          "name": "diferencia",
+          "type": "numeric(10, 2)",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'0.00'"
+        },
+        "observaciones": {
+          "name": "observaciones",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fecha_apertura": {
+          "name": "fecha_apertura",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "fecha_cierre": {
+          "name": "fecha_cierre",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "cajas_empresa_id_empresas_id_fk": {
+          "name": "cajas_empresa_id_empresas_id_fk",
+          "tableFrom": "cajas",
+          "tableTo": "empresas",
+          "columnsFrom": [
+            "empresa_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "cajas_cajero_id_empleados_id_fk": {
+          "name": "cajas_cajero_id_empleados_id_fk",
+          "tableFrom": "cajas",
+          "tableTo": "empleados",
+          "columnsFrom": [
+            "cajero_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.categorias": {
+      "name": "categorias",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "empresa_id": {
+          "name": "empresa_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
         },
         "nombre": {
           "name": "nombre",
           "type": "varchar(255)",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "descripcion": {
           "name": "descripcion",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
+        },
+        "icono": {
+          "name": "icono",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": false
         },
         "orden": {
           "name": "orden",
-          "type": "int",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
-          "autoincrement": false,
           "default": 0
+        },
+        "area": {
+          "name": "area",
+          "type": "comanda_area",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'COCINA'"
         },
         "activa": {
           "name": "activa",
           "type": "boolean",
           "primaryKey": false,
           "notNull": false,
-          "autoincrement": false,
           "default": true
         },
-        "createdAt": {
-          "name": "createdAt",
+        "created_at": {
+          "name": "created_at",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
+          "default": "now()"
         }
       },
       "indexes": {},
       "foreignKeys": {
-        "categorias_empresaId_empresas_id_fk": {
-          "name": "categorias_empresaId_empresas_id_fk",
+        "categorias_empresa_id_empresas_id_fk": {
+          "name": "categorias_empresa_id_empresas_id_fk",
           "tableFrom": "categorias",
           "tableTo": "empresas",
           "columnsFrom": [
-            "empresaId"
+            "empresa_id"
           ],
           "columnsTo": [
             "id"
@@ -76,108 +238,93 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {
-        "categorias_id": {
-          "name": "categorias_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
+      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraint": {}
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
     },
-    "clientes": {
+    "public.clientes": {
       "name": "clientes",
+      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": true
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
         },
-        "empresaId": {
-          "name": "empresaId",
-          "type": "int",
+        "empresa_id": {
+          "name": "empresa_id",
+          "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "nombre": {
           "name": "nombre",
           "type": "varchar(255)",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "apellido": {
           "name": "apellido",
           "type": "varchar(255)",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "email": {
           "name": "email",
           "type": "varchar(255)",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "telefono": {
           "name": "telefono",
           "type": "varchar(20)",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "dni": {
           "name": "dni",
           "type": "varchar(8)",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "ruc": {
           "name": "ruc",
           "type": "varchar(11)",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "direccion": {
           "name": "direccion",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
-        "tipoCliente": {
-          "name": "tipoCliente",
+        "tipo_cliente": {
+          "name": "tipo_cliente",
           "type": "varchar(50)",
           "primaryKey": false,
           "notNull": false,
-          "autoincrement": false,
           "default": "'CONSUMIDOR_FINAL'"
         },
-        "createdAt": {
-          "name": "createdAt",
+        "created_at": {
+          "name": "created_at",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
+          "default": "now()"
         }
       },
       "indexes": {},
       "foreignKeys": {
-        "clientes_empresaId_empresas_id_fk": {
-          "name": "clientes_empresaId_empresas_id_fk",
+        "clientes_empresa_id_empresas_id_fk": {
+          "name": "clientes_empresa_id_empresas_id_fk",
           "tableFrom": "clientes",
           "tableTo": "empresas",
           "columnsFrom": [
-            "empresaId"
+            "empresa_id"
           ],
           "columnsTo": [
             "id"
@@ -186,134 +333,74 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {
-        "clientes_id": {
-          "name": "clientes_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
+      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraint": {}
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
     },
-    "comprobantes": {
-      "name": "comprobantes",
+    "public.comprobante_items": {
+      "name": "comprobante_items",
+      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": true
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
         },
-        "empresaId": {
-          "name": "empresaId",
-          "type": "int",
+        "comprobante_id": {
+          "name": "comprobante_id",
+          "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
-        "pedidoId": {
-          "name": "pedidoId",
-          "type": "int",
+        "descripcion": {
+          "name": "descripcion",
+          "type": "text",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
-        "clienteId": {
-          "name": "clienteId",
-          "type": "int",
+        "cantidad": {
+          "name": "cantidad",
+          "type": "integer",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": true
         },
-        "tipo": {
-          "name": "tipo",
-          "type": "enum('BOLETA','FACTURA','TICKET')",
+        "precio_unitario": {
+          "name": "precio_unitario",
+          "type": "numeric(10, 2)",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
-        "numeroSerie": {
-          "name": "numeroSerie",
-          "type": "varchar(50)",
+        "subtotal": {
+          "name": "subtotal",
+          "type": "numeric(10, 2)",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": true
         },
-        "numeroComprobante": {
-          "name": "numeroComprobante",
-          "type": "varchar(50)",
+        "igv": {
+          "name": "igv",
+          "type": "numeric(10, 2)",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": true
         },
-        "rucCliente": {
-          "name": "rucCliente",
-          "type": "varchar(11)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "montoTotal": {
-          "name": "montoTotal",
-          "type": "decimal(10,2)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "fechaEmision": {
-          "name": "fechaEmision",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false,
-          "default": "(now())"
-        },
-        "createdAt": {
-          "name": "createdAt",
+        "created_at": {
+          "name": "created_at",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
+          "default": "now()"
         }
       },
       "indexes": {},
       "foreignKeys": {
-        "comprobantes_empresaId_empresas_id_fk": {
-          "name": "comprobantes_empresaId_empresas_id_fk",
-          "tableFrom": "comprobantes",
-          "tableTo": "empresas",
+        "comprobante_items_comprobante_id_comprobantes_id_fk": {
+          "name": "comprobante_items_comprobante_id_comprobantes_id_fk",
+          "tableFrom": "comprobante_items",
+          "tableTo": "comprobantes",
           "columnsFrom": [
-            "empresaId"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "comprobantes_pedidoId_pedidos_id_fk": {
-          "name": "comprobantes_pedidoId_pedidos_id_fk",
-          "tableFrom": "comprobantes",
-          "tableTo": "pedidos",
-          "columnsFrom": [
-            "pedidoId"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "comprobantes_clienteId_clientes_id_fk": {
-          "name": "comprobantes_clienteId_clientes_id_fk",
-          "tableFrom": "comprobantes",
-          "tableTo": "clientes",
-          "columnsFrom": [
-            "clienteId"
+            "comprobante_id"
           ],
           "columnsTo": [
             "id"
@@ -322,61 +409,225 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {
-        "comprobantes_id": {
-          "name": "comprobantes_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
+      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraint": {}
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
     },
-    "empleados": {
-      "name": "empleados",
+    "public.comprobantes": {
+      "name": "comprobantes",
+      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": true
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
         },
-        "empresaId": {
-          "name": "empresaId",
-          "type": "int",
+        "empresa_id": {
+          "name": "empresa_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "venta_id": {
+          "name": "venta_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "pedido_id": {
+          "name": "pedido_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cliente_id": {
+          "name": "cliente_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "tipo": {
+          "name": "tipo",
+          "type": "comprobante_type",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "serie": {
+          "name": "serie",
+          "type": "varchar(10)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "numero": {
+          "name": "numero",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ruc_cliente": {
+          "name": "ruc_cliente",
+          "type": "varchar(11)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sunat_status": {
+          "name": "sunat_status",
+          "type": "sunat_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'PENDIENTE'"
+        },
+        "xml_path": {
+          "name": "xml_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cdr_path": {
+          "name": "cdr_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pdf_path": {
+          "name": "pdf_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "digest_value": {
+          "name": "digest_value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sunat_response": {
+          "name": "sunat_response",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fecha_emision": {
+          "name": "fecha_emision",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "now()"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "comprobantes_empresa_id_empresas_id_fk": {
+          "name": "comprobantes_empresa_id_empresas_id_fk",
+          "tableFrom": "comprobantes",
+          "tableTo": "empresas",
+          "columnsFrom": [
+            "empresa_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "comprobantes_venta_id_ventas_id_fk": {
+          "name": "comprobantes_venta_id_ventas_id_fk",
+          "tableFrom": "comprobantes",
+          "tableTo": "ventas",
+          "columnsFrom": [
+            "venta_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "comprobantes_pedido_id_pedidos_id_fk": {
+          "name": "comprobantes_pedido_id_pedidos_id_fk",
+          "tableFrom": "comprobantes",
+          "tableTo": "pedidos",
+          "columnsFrom": [
+            "pedido_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "comprobantes_cliente_id_clientes_id_fk": {
+          "name": "comprobantes_cliente_id_clientes_id_fk",
+          "tableFrom": "comprobantes",
+          "tableTo": "clientes",
+          "columnsFrom": [
+            "cliente_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.empleados": {
+      "name": "empleados",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "empresa_id": {
+          "name": "empresa_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
         },
         "nombre": {
           "name": "nombre",
           "type": "varchar(255)",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "apellido": {
           "name": "apellido",
           "type": "varchar(255)",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "pin": {
           "name": "pin",
           "type": "varchar(4)",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
-        "userRole": {
-          "name": "userRole",
-          "type": "enum('MOZO','CAJERO','DUENO','ADMIN')",
+        "user_role": {
+          "name": "user_role",
+          "type": "user_role",
+          "typeSchema": "public",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
           "default": "'MOZO'"
         },
         "activo": {
@@ -384,35 +635,31 @@
           "type": "boolean",
           "primaryKey": false,
           "notNull": false,
-          "autoincrement": false,
           "default": true
         },
-        "createdAt": {
-          "name": "createdAt",
+        "created_at": {
+          "name": "created_at",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
+          "default": "now()"
         },
-        "updatedAt": {
-          "name": "updatedAt",
+        "updated_at": {
+          "name": "updated_at",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "onUpdate": true,
-          "default": "(now())"
+          "default": "now()"
         }
       },
       "indexes": {},
       "foreignKeys": {
-        "empleados_empresaId_empresas_id_fk": {
-          "name": "empleados_empresaId_empresas_id_fk",
+        "empleados_empresa_id_empresas_id_fk": {
+          "name": "empleados_empresa_id_empresas_id_fk",
           "tableFrom": "empleados",
           "tableTo": "empresas",
           "columnsFrom": [
-            "empresaId"
+            "empresa_id"
           ],
           "columnsTo": [
             "id"
@@ -421,201 +668,192 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {
-        "empleados_id": {
-          "name": "empleados_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
+      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraint": {}
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
     },
-    "empresas": {
+    "public.empresas": {
       "name": "empresas",
+      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": true
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
         },
         "nombre": {
           "name": "nombre",
           "type": "varchar(255)",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "ruc": {
           "name": "ruc",
           "type": "varchar(11)",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
-        "razonSocial": {
-          "name": "razonSocial",
+        "razon_social": {
+          "name": "razon_social",
           "type": "varchar(255)",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "direccion": {
           "name": "direccion",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "telefono": {
           "name": "telefono",
           "type": "varchar(20)",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "email": {
           "name": "email",
           "type": "varchar(255)",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
-        "logoUrl": {
-          "name": "logoUrl",
+        "logo_url": {
+          "name": "logo_url",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "activa": {
           "name": "activa",
           "type": "boolean",
           "primaryKey": false,
           "notNull": false,
-          "autoincrement": false,
           "default": true
         },
-        "impuestoPorcentaje": {
-          "name": "impuestoPorcentaje",
-          "type": "decimal(5,2)",
+        "impuesto_porcentaje": {
+          "name": "impuesto_porcentaje",
+          "type": "numeric(5, 2)",
           "primaryKey": false,
           "notNull": false,
-          "autoincrement": false,
-          "default": "'18.00'"
+          "default": "'10.50'"
         },
         "moneda": {
           "name": "moneda",
           "type": "varchar(3)",
           "primaryKey": false,
           "notNull": false,
-          "autoincrement": false,
           "default": "'PEN'"
         },
-        "createdAt": {
-          "name": "createdAt",
+        "created_at": {
+          "name": "created_at",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
+          "default": "now()"
         },
-        "updatedAt": {
-          "name": "updatedAt",
+        "updated_at": {
+          "name": "updated_at",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "onUpdate": true,
-          "default": "(now())"
+          "default": "now()"
         }
       },
       "indexes": {},
       "foreignKeys": {},
-      "compositePrimaryKeys": {
-        "empresas_id": {
-          "name": "empresas_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
+      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraint": {}
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
     },
-    "itemsPedido": {
-      "name": "itemsPedido",
+    "public.items_pedido": {
+      "name": "items_pedido",
+      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": true
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
         },
-        "pedidoId": {
-          "name": "pedidoId",
-          "type": "int",
+        "pedido_id": {
+          "name": "pedido_id",
+          "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
-        "productoId": {
-          "name": "productoId",
-          "type": "int",
+        "producto_id": {
+          "name": "producto_id",
+          "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "cantidad": {
           "name": "cantidad",
-          "type": "int",
+          "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
           "default": 1
         },
-        "precioUnitario": {
-          "name": "precioUnitario",
-          "type": "decimal(10,2)",
+        "precio_unitario": {
+          "name": "precio_unitario",
+          "type": "numeric(10, 2)",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "subtotal": {
           "name": "subtotal",
-          "type": "decimal(10,2)",
+          "type": "numeric(10, 2)",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "notas": {
           "name": "notas",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
-        "createdAt": {
-          "name": "createdAt",
+        "estado": {
+          "name": "estado",
+          "type": "order_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'PENDIENTE'"
+        },
+        "sub_cuenta": {
+          "name": "sub_cuenta",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "default": 0
+        },
+        "sub_cuenta_nombre": {
+          "name": "sub_cuenta_nombre",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
+          "default": "now()"
         }
       },
       "indexes": {},
       "foreignKeys": {
-        "itemsPedido_pedidoId_pedidos_id_fk": {
-          "name": "itemsPedido_pedidoId_pedidos_id_fk",
-          "tableFrom": "itemsPedido",
+        "items_pedido_pedido_id_pedidos_id_fk": {
+          "name": "items_pedido_pedido_id_pedidos_id_fk",
+          "tableFrom": "items_pedido",
           "tableTo": "pedidos",
           "columnsFrom": [
-            "pedidoId"
+            "pedido_id"
           ],
           "columnsTo": [
             "id"
@@ -623,12 +861,12 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "itemsPedido_productoId_productos_id_fk": {
-          "name": "itemsPedido_productoId_productos_id_fk",
-          "tableFrom": "itemsPedido",
+        "items_pedido_producto_id_productos_id_fk": {
+          "name": "items_pedido_producto_id_productos_id_fk",
+          "tableFrom": "items_pedido",
           "tableTo": "productos",
           "columnsFrom": [
-            "productoId"
+            "producto_id"
           ],
           "columnsTo": [
             "id"
@@ -637,96 +875,84 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {
-        "itemsPedido_id": {
-          "name": "itemsPedido_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
+      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraint": {}
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
     },
-    "mesas": {
+    "public.mesas": {
       "name": "mesas",
+      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": true
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
         },
-        "empresaId": {
-          "name": "empresaId",
-          "type": "int",
+        "empresa_id": {
+          "name": "empresa_id",
+          "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "numero": {
           "name": "numero",
-          "type": "int",
+          "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "capacidad": {
           "name": "capacidad",
-          "type": "int",
+          "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
           "default": 4
         },
-        "tableStatus": {
-          "name": "tableStatus",
-          "type": "enum('DISPONIBLE','OCUPADA','PIDIENDO_CUENTA','RESERVADA')",
+        "table_status": {
+          "name": "table_status",
+          "type": "table_status",
+          "typeSchema": "public",
           "primaryKey": false,
           "notNull": false,
-          "autoincrement": false,
           "default": "'DISPONIBLE'"
         },
-        "mozoAsignadoId": {
-          "name": "mozoAsignadoId",
-          "type": "int",
+        "mozo_asignado_id": {
+          "name": "mozo_asignado_id",
+          "type": "integer",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "personas": {
           "name": "personas",
-          "type": "int",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
-          "autoincrement": false,
           "default": 0
         },
-        "fechaOcupacion": {
-          "name": "fechaOcupacion",
+        "fecha_ocupacion": {
+          "name": "fecha_ocupacion",
           "type": "timestamp",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
-        "createdAt": {
-          "name": "createdAt",
+        "created_at": {
+          "name": "created_at",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
+          "default": "now()"
         }
       },
       "indexes": {},
       "foreignKeys": {
-        "mesas_empresaId_empresas_id_fk": {
-          "name": "mesas_empresaId_empresas_id_fk",
+        "mesas_empresa_id_empresas_id_fk": {
+          "name": "mesas_empresa_id_empresas_id_fk",
           "tableFrom": "mesas",
           "tableTo": "empresas",
           "columnsFrom": [
-            "empresaId"
+            "empresa_id"
           ],
           "columnsTo": [
             "id"
@@ -734,12 +960,12 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "mesas_mozoAsignadoId_empleados_id_fk": {
-          "name": "mesas_mozoAsignadoId_empleados_id_fk",
+        "mesas_mozo_asignado_id_empleados_id_fk": {
+          "name": "mesas_mozo_asignado_id_empleados_id_fk",
           "tableFrom": "mesas",
           "tableTo": "empleados",
           "columnsFrom": [
-            "mozoAsignadoId"
+            "mozo_asignado_id"
           ],
           "columnsTo": [
             "id"
@@ -748,124 +974,109 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {
-        "mesas_id": {
-          "name": "mesas_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
+      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraint": {}
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
     },
-    "pagos": {
+    "public.pagos": {
       "name": "pagos",
+      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": true
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
         },
-        "empresaId": {
-          "name": "empresaId",
-          "type": "int",
+        "empresa_id": {
+          "name": "empresa_id",
+          "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
-        "pedidoId": {
-          "name": "pedidoId",
-          "type": "int",
+        "pedido_id": {
+          "name": "pedido_id",
+          "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
-        "clienteId": {
-          "name": "clienteId",
-          "type": "int",
+        "cliente_id": {
+          "name": "cliente_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cajero_id": {
+          "name": "cajero_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "payment_method": {
+          "name": "payment_method",
+          "type": "payment_method",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "payment_status": {
+          "name": "payment_status",
+          "type": "payment_status",
+          "typeSchema": "public",
           "primaryKey": false,
           "notNull": false,
-          "autoincrement": false
-        },
-        "cajeroId": {
-          "name": "cajeroId",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "paymentMethod": {
-          "name": "paymentMethod",
-          "type": "enum('EFECTIVO','TARJETA','YAPE','PLIN','TRANSFERENCIA')",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "paymentStatus": {
-          "name": "paymentStatus",
-          "type": "enum('PENDIENTE','PAGADO','PARCIAL','CANCELADO')",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false,
           "default": "'PENDIENTE'"
         },
         "monto": {
           "name": "monto",
-          "type": "decimal(10,2)",
+          "type": "numeric(10, 2)",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
-        "montoPagado": {
-          "name": "montoPagado",
-          "type": "decimal(10,2)",
+        "monto_pagado": {
+          "name": "monto_pagado",
+          "type": "numeric(10, 2)",
           "primaryKey": false,
           "notNull": false,
-          "autoincrement": false,
-          "default": "'0'"
+          "default": "'0.00'"
         },
         "vuelto": {
           "name": "vuelto",
-          "type": "decimal(10,2)",
+          "type": "numeric(10, 2)",
           "primaryKey": false,
           "notNull": false,
-          "autoincrement": false,
-          "default": "'0'"
+          "default": "'0.00'"
         },
-        "referenciaPago": {
-          "name": "referenciaPago",
+        "referencia_pago": {
+          "name": "referencia_pago",
           "type": "varchar(255)",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
-        "fechaPago": {
-          "name": "fechaPago",
+        "fecha_pago": {
+          "name": "fecha_pago",
           "type": "timestamp",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
-        "createdAt": {
-          "name": "createdAt",
+        "created_at": {
+          "name": "created_at",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
+          "default": "now()"
         }
       },
       "indexes": {},
       "foreignKeys": {
-        "pagos_empresaId_empresas_id_fk": {
-          "name": "pagos_empresaId_empresas_id_fk",
+        "pagos_empresa_id_empresas_id_fk": {
+          "name": "pagos_empresa_id_empresas_id_fk",
           "tableFrom": "pagos",
           "tableTo": "empresas",
           "columnsFrom": [
-            "empresaId"
+            "empresa_id"
           ],
           "columnsTo": [
             "id"
@@ -873,12 +1084,12 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "pagos_pedidoId_pedidos_id_fk": {
-          "name": "pagos_pedidoId_pedidos_id_fk",
+        "pagos_pedido_id_pedidos_id_fk": {
+          "name": "pagos_pedido_id_pedidos_id_fk",
           "tableFrom": "pagos",
           "tableTo": "pedidos",
           "columnsFrom": [
-            "pedidoId"
+            "pedido_id"
           ],
           "columnsTo": [
             "id"
@@ -886,12 +1097,12 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "pagos_clienteId_clientes_id_fk": {
-          "name": "pagos_clienteId_clientes_id_fk",
+        "pagos_cliente_id_clientes_id_fk": {
+          "name": "pagos_cliente_id_clientes_id_fk",
           "tableFrom": "pagos",
           "tableTo": "clientes",
           "columnsFrom": [
-            "clienteId"
+            "cliente_id"
           ],
           "columnsTo": [
             "id"
@@ -899,12 +1110,12 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "pagos_cajeroId_empleados_id_fk": {
-          "name": "pagos_cajeroId_empleados_id_fk",
+        "pagos_cajero_id_empleados_id_fk": {
+          "name": "pagos_cajero_id_empleados_id_fk",
           "tableFrom": "pagos",
           "tableTo": "empleados",
           "columnsFrom": [
-            "cajeroId"
+            "cajero_id"
           ],
           "columnsTo": [
             "id"
@@ -913,113 +1124,98 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {
-        "pagos_id": {
-          "name": "pagos_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
+      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraint": {}
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
     },
-    "pedidos": {
+    "public.pedidos": {
       "name": "pedidos",
+      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": true
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
         },
-        "empresaId": {
-          "name": "empresaId",
-          "type": "int",
+        "empresa_id": {
+          "name": "empresa_id",
+          "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
-        "mesaId": {
-          "name": "mesaId",
-          "type": "int",
+        "mesa_id": {
+          "name": "mesa_id",
+          "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
-        "mozoId": {
-          "name": "mozoId",
-          "type": "int",
+        "mozo_id": {
+          "name": "mozo_id",
+          "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
-        "orderStatus": {
-          "name": "orderStatus",
-          "type": "enum('PENDIENTE','PREPARANDO','LISTO','ENTREGADO','CANCELADO')",
+        "order_status": {
+          "name": "order_status",
+          "type": "order_status",
+          "typeSchema": "public",
           "primaryKey": false,
           "notNull": false,
-          "autoincrement": false,
           "default": "'PENDIENTE'"
         },
         "subtotal": {
           "name": "subtotal",
-          "type": "decimal(10,2)",
+          "type": "numeric(10, 2)",
           "primaryKey": false,
           "notNull": false,
-          "autoincrement": false,
-          "default": "'0'"
+          "default": "'0.00'"
         },
         "impuesto": {
           "name": "impuesto",
-          "type": "decimal(10,2)",
+          "type": "numeric(10, 2)",
           "primaryKey": false,
           "notNull": false,
-          "autoincrement": false,
-          "default": "'0'"
+          "default": "'0.00'"
         },
         "total": {
           "name": "total",
-          "type": "decimal(10,2)",
+          "type": "numeric(10, 2)",
           "primaryKey": false,
           "notNull": false,
-          "autoincrement": false,
-          "default": "'0'"
+          "default": "'0.00'"
         },
         "notas": {
           "name": "notas",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
-        "createdAt": {
-          "name": "createdAt",
+        "created_at": {
+          "name": "created_at",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
+          "default": "now()"
         },
-        "updatedAt": {
-          "name": "updatedAt",
+        "updated_at": {
+          "name": "updated_at",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "onUpdate": true,
-          "default": "(now())"
+          "default": "now()"
         }
       },
       "indexes": {},
       "foreignKeys": {
-        "pedidos_empresaId_empresas_id_fk": {
-          "name": "pedidos_empresaId_empresas_id_fk",
+        "pedidos_empresa_id_empresas_id_fk": {
+          "name": "pedidos_empresa_id_empresas_id_fk",
           "tableFrom": "pedidos",
           "tableTo": "empresas",
           "columnsFrom": [
-            "empresaId"
+            "empresa_id"
           ],
           "columnsTo": [
             "id"
@@ -1027,12 +1223,12 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "pedidos_mesaId_mesas_id_fk": {
-          "name": "pedidos_mesaId_mesas_id_fk",
+        "pedidos_mesa_id_mesas_id_fk": {
+          "name": "pedidos_mesa_id_mesas_id_fk",
           "tableFrom": "pedidos",
           "tableTo": "mesas",
           "columnsFrom": [
-            "mesaId"
+            "mesa_id"
           ],
           "columnsTo": [
             "id"
@@ -1040,12 +1236,12 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "pedidos_mozoId_empleados_id_fk": {
-          "name": "pedidos_mozoId_empleados_id_fk",
+        "pedidos_mozo_id_empleados_id_fk": {
+          "name": "pedidos_mozo_id_empleados_id_fk",
           "tableFrom": "pedidos",
           "tableTo": "empleados",
           "columnsFrom": [
-            "mozoId"
+            "mozo_id"
           ],
           "columnsTo": [
             "id"
@@ -1054,126 +1250,108 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {
-        "pedidos_id": {
-          "name": "pedidos_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
+      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraint": {}
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
     },
-    "productos": {
+    "public.productos": {
       "name": "productos",
+      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "int",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": true
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
         },
-        "empresaId": {
-          "name": "empresaId",
-          "type": "int",
+        "empresa_id": {
+          "name": "empresa_id",
+          "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
-        "categoriaId": {
-          "name": "categoriaId",
-          "type": "int",
+        "categoria_id": {
+          "name": "categoria_id",
+          "type": "integer",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "nombre": {
           "name": "nombre",
           "type": "varchar(255)",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
         "descripcion": {
           "name": "descripcion",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "precio": {
           "name": "precio",
-          "type": "decimal(10,2)",
+          "type": "numeric(10, 2)",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
-        "precioCosto": {
-          "name": "precioCosto",
-          "type": "decimal(10,2)",
+        "precio_costo": {
+          "name": "precio_costo",
+          "type": "numeric(10, 2)",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "stock": {
           "name": "stock",
-          "type": "int",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
-          "autoincrement": false,
-          "default": 0
+          "default": 100
         },
-        "stockMinimo": {
-          "name": "stockMinimo",
-          "type": "int",
+        "stock_minimo": {
+          "name": "stock_minimo",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false,
-          "autoincrement": false,
           "default": 5
         },
-        "imagenUrl": {
-          "name": "imagenUrl",
+        "imagen_url": {
+          "name": "imagen_url",
           "type": "text",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "activo": {
           "name": "activo",
           "type": "boolean",
           "primaryKey": false,
           "notNull": false,
-          "autoincrement": false,
           "default": true
         },
-        "createdAt": {
-          "name": "createdAt",
+        "created_at": {
+          "name": "created_at",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
+          "default": "now()"
         },
-        "updatedAt": {
-          "name": "updatedAt",
+        "updated_at": {
+          "name": "updated_at",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "onUpdate": true,
-          "default": "(now())"
+          "default": "now()"
         }
       },
       "indexes": {},
       "foreignKeys": {
-        "productos_empresaId_empresas_id_fk": {
-          "name": "productos_empresaId_empresas_id_fk",
+        "productos_empresa_id_empresas_id_fk": {
+          "name": "productos_empresa_id_empresas_id_fk",
           "tableFrom": "productos",
           "tableTo": "empresas",
           "columnsFrom": [
-            "empresaId"
+            "empresa_id"
           ],
           "columnsTo": [
             "id"
@@ -1181,12 +1359,12 @@
           "onDelete": "no action",
           "onUpdate": "no action"
         },
-        "productos_categoriaId_categorias_id_fk": {
-          "name": "productos_categoriaId_categorias_id_fk",
+        "productos_categoria_id_categorias_id_fk": {
+          "name": "productos_categoria_id_categorias_id_fk",
           "tableFrom": "productos",
           "tableTo": "categorias",
           "columnsFrom": [
-            "categoriaId"
+            "categoria_id"
           ],
           "columnsTo": [
             "id"
@@ -1195,141 +1373,310 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {
-        "productos_id": {
-          "name": "productos_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
+      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraint": {}
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
     },
-    "users": {
-      "name": "users",
+    "public.reservas": {
+      "name": "reservas",
+      "schema": "",
       "columns": {
         "id": {
           "name": "id",
-          "type": "int",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "empresa_id": {
+          "name": "empresa_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "mesa_id": {
+          "name": "mesa_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cliente_nombre": {
+          "name": "cliente_nombre",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cliente_telefono": {
+          "name": "cliente_telefono",
+          "type": "varchar(50)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cliente_email": {
+          "name": "cliente_email",
+          "type": "varchar(255)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fecha_reserva": {
+          "name": "fecha_reserva",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "hora_reserva": {
+          "name": "hora_reserva",
+          "type": "time",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "num_personas": {
+          "name": "num_personas",
+          "type": "integer",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": true
+          "default": 2
         },
-        "openId": {
-          "name": "openId",
+        "reservation_status": {
+          "name": "reservation_status",
+          "type": "reservation_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false,
+          "default": "'PENDIENTE'"
+        },
+        "notas": {
+          "name": "notas",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "reservas_empresa_id_empresas_id_fk": {
+          "name": "reservas_empresa_id_empresas_id_fk",
+          "tableFrom": "reservas",
+          "tableTo": "empresas",
+          "columnsFrom": [
+            "empresa_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "reservas_mesa_id_mesas_id_fk": {
+          "name": "reservas_mesa_id_mesas_id_fk",
+          "tableFrom": "reservas",
+          "tableTo": "mesas",
+          "columnsFrom": [
+            "mesa_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.users": {
+      "name": "users",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "open_id": {
+          "name": "open_id",
           "type": "varchar(64)",
           "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
+          "notNull": true
         },
-        "empresaId": {
-          "name": "empresaId",
-          "type": "int",
+        "name": {
+          "name": "name",
+          "type": "text",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "nombre": {
-          "name": "nombre",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "apellido": {
-          "name": "apellido",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "email": {
           "name": "email",
           "type": "varchar(320)",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
-        "pinHash": {
-          "name": "pinHash",
-          "type": "varchar(255)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "userRole": {
-          "name": "userRole",
-          "type": "enum('MOZO','CAJERO','DUENO','ADMIN')",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'MOZO'"
-        },
-        "activo": {
-          "name": "activo",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false,
-          "default": true
-        },
-        "loginMethod": {
-          "name": "loginMethod",
+        "login_method": {
+          "name": "login_method",
           "type": "varchar(64)",
           "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
+          "notNull": false
         },
         "role": {
           "name": "role",
-          "type": "enum('user','admin')",
+          "type": "system_role",
+          "typeSchema": "public",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
           "default": "'user'"
         },
-        "ultimoLogin": {
-          "name": "ultimoLogin",
+        "created_at": {
+          "name": "created_at",
           "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "last_signed_in": {
+          "name": "last_signed_in",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "users_open_id_unique": {
+          "name": "users_open_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "open_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.ventas": {
+      "name": "ventas",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "empresa_id": {
+          "name": "empresa_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "pedido_id": {
+          "name": "pedido_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "cliente_id": {
+          "name": "cliente_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "total": {
+          "name": "total",
+          "type": "numeric(10, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "subtotal": {
+          "name": "subtotal",
+          "type": "numeric(10, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "igv": {
+          "name": "igv",
+          "type": "numeric(10, 2)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "estado": {
+          "name": "estado",
+          "type": "varchar(50)",
           "primaryKey": false,
           "notNull": false,
-          "autoincrement": false
+          "default": "'COMPLETA'"
         },
-        "createdAt": {
-          "name": "createdAt",
+        "created_at": {
+          "name": "created_at",
           "type": "timestamp",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
-        },
-        "updatedAt": {
-          "name": "updatedAt",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "onUpdate": true,
-          "default": "(now())"
-        },
-        "lastSignedIn": {
-          "name": "lastSignedIn",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "(now())"
+          "default": "now()"
         }
       },
       "indexes": {},
       "foreignKeys": {
-        "users_empresaId_empresas_id_fk": {
-          "name": "users_empresaId_empresas_id_fk",
-          "tableFrom": "users",
+        "ventas_empresa_id_empresas_id_fk": {
+          "name": "ventas_empresa_id_empresas_id_fk",
+          "tableFrom": "ventas",
           "tableTo": "empresas",
           "columnsFrom": [
-            "empresaId"
+            "empresa_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "ventas_pedido_id_pedidos_id_fk": {
+          "name": "ventas_pedido_id_pedidos_id_fk",
+          "tableFrom": "ventas",
+          "tableTo": "pedidos",
+          "columnsFrom": [
+            "pedido_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "ventas_cliente_id_clientes_id_fk": {
+          "name": "ventas_cliente_id_clientes_id_fk",
+          "tableFrom": "ventas",
+          "tableTo": "clientes",
+          "columnsFrom": [
+            "cliente_id"
           ],
           "columnsTo": [
             "id"
@@ -1338,33 +1685,131 @@
           "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {
-        "users_id": {
-          "name": "users_id",
-          "columns": [
-            "id"
-          ]
-        }
-      },
-      "uniqueConstraints": {
-        "users_openId_unique": {
-          "name": "users_openId_unique",
-          "columns": [
-            "openId"
-          ]
-        }
-      },
-      "checkConstraint": {}
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
     }
   },
+  "enums": {
+    "public.caja_status": {
+      "name": "caja_status",
+      "schema": "public",
+      "values": [
+        "ABIERTA",
+        "CERRADA"
+      ]
+    },
+    "public.comanda_area": {
+      "name": "comanda_area",
+      "schema": "public",
+      "values": [
+        "COCINA",
+        "BAR"
+      ]
+    },
+    "public.comprobante_type": {
+      "name": "comprobante_type",
+      "schema": "public",
+      "values": [
+        "BOLETA",
+        "FACTURA",
+        "TICKET",
+        "NOTA_CREDITO",
+        "NOTA_DEBITO"
+      ]
+    },
+    "public.order_status": {
+      "name": "order_status",
+      "schema": "public",
+      "values": [
+        "PENDIENTE",
+        "PREPARANDO",
+        "LISTO",
+        "ENTREGADO",
+        "CANCELADO"
+      ]
+    },
+    "public.payment_method": {
+      "name": "payment_method",
+      "schema": "public",
+      "values": [
+        "EFECTIVO",
+        "TARJETA",
+        "YAPE",
+        "PLIN",
+        "TRANSFERENCIA"
+      ]
+    },
+    "public.payment_status": {
+      "name": "payment_status",
+      "schema": "public",
+      "values": [
+        "PENDIENTE",
+        "PAGADO",
+        "PARCIAL",
+        "CANCELADO"
+      ]
+    },
+    "public.reservation_status": {
+      "name": "reservation_status",
+      "schema": "public",
+      "values": [
+        "PENDIENTE",
+        "CONFIRMADA",
+        "CANCELADA",
+        "COMPLETADA"
+      ]
+    },
+    "public.sunat_status": {
+      "name": "sunat_status",
+      "schema": "public",
+      "values": [
+        "PENDIENTE",
+        "ENVIADO",
+        "ACEPTADO",
+        "RECHAZADO",
+        "ANULADO"
+      ]
+    },
+    "public.system_role": {
+      "name": "system_role",
+      "schema": "public",
+      "values": [
+        "user",
+        "admin"
+      ]
+    },
+    "public.table_status": {
+      "name": "table_status",
+      "schema": "public",
+      "values": [
+        "DISPONIBLE",
+        "OCUPADA",
+        "PIDIENDO_CUENTA",
+        "RESERVADA"
+      ]
+    },
+    "public.user_role": {
+      "name": "user_role",
+      "schema": "public",
+      "values": [
+        "MOZO",
+        "CAJERO",
+        "DUENO",
+        "ADMIN"
+      ]
+    }
+  },
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
   "views": {},
   "_meta": {
+    "columns": {},
     "schemas": {},
-    "tables": {},
-    "columns": {}
-  },
-  "internal": {
-    "tables": {},
-    "indexes": {}
+    "tables": {}
   }
 }
