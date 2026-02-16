@@ -589,6 +589,7 @@ export default function Cajero() {
                 <thead className="bg-muted/50 border-b text-left">
                   <tr>
                     <th className="px-4 py-3 font-medium text-muted-foreground">Fecha</th>
+                    <th className="px-4 py-3 font-medium text-muted-foreground">Hora</th>
                     <th className="px-4 py-3 font-medium text-muted-foreground">Comprobante</th>
                     <th className="px-4 py-3 font-medium text-muted-foreground">Cliente</th>
                     <th className="px-4 py-3 font-medium text-muted-foreground text-right">Total</th>
@@ -598,11 +599,12 @@ export default function Cajero() {
                 </thead>
                 <tbody className="divide-y text-foreground">
                   {(!historialVentas || historialVentas.length === 0) && (
-                    <tr><td colSpan={6} className="text-center py-8 text-muted-foreground">No hay ventas registradas hoy</td></tr>
+                    <tr><td colSpan={7} className="text-center py-8 text-muted-foreground">No hay ventas registradas hoy</td></tr>
                   )}
                   {historialVentas?.map((item: any) => (
                     <tr key={item.ventas.id} className="hover:bg-muted/10 transition-colors">
-                      <td className="px-4 py-3">{new Date(item.ventas.createdAt).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit' })}</td>
+                      <td className="px-4 py-3 text-sm">{new Date(item.ventas.createdAt).toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' })}</td>
+                      <td className="px-4 py-3 text-sm text-muted-foreground">{new Date(item.ventas.createdAt).toLocaleTimeString('es-PE', { hour: '2-digit', minute: '2-digit', hour12: true })}</td>
                       <td className="px-4 py-3 font-mono">
                         {item.comprobantes ? (
                           <div>
