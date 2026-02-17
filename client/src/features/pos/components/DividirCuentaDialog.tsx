@@ -158,7 +158,7 @@ export function DividirCuentaDialog({ open, onOpenChange, items, onSave }: Divid
                         </div>
                     </div>
 
-                    <div className="flex-1 overflow-x-auto p-4 space-x-4 flex">
+                    <div className="flex-1 p-4 flex flex-col md:flex-row gap-4 overflow-y-auto md:overflow-x-auto md:overflow-y-hidden bg-muted/5">
                         {Array.from({ length: numCuentas }).map((_, colIndex) => {
                             const colItems = items.filter(item => {
                                 const assigned = asignaciones[item.id!] ?? (item.subCuenta || 0);
@@ -171,7 +171,7 @@ export function DividirCuentaDialog({ open, onOpenChange, items, onSave }: Divid
                             return (
                                 <div
                                     key={colIndex}
-                                    className="min-w-[320px] flex-1 flex flex-col border rounded-lg bg-card shadow-sm h-full max-h-full transition-colors"
+                                    className="w-full md:w-[320px] md:min-w-[320px] flex flex-col border rounded-lg bg-card shadow-sm min-h-[350px] md:h-full md:min-h-0 transition-colors shrink-0"
                                     onDragOver={handleDragOver}
                                     onDrop={(e) => handleDrop(e, colIndex)}
                                 >
