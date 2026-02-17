@@ -136,7 +136,7 @@ export function DividirCuentaDialog({ open, onOpenChange, items, onSave }: Divid
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-[95vw] h-[90vh] flex flex-col p-0 gap-0 bg-background/95 backdrop-blur-xl border-border/50">
+            <DialogContent className="sm:max-w-[98vw] max-w-[98vw] w-[98vw] h-[95vh] flex flex-col p-0 gap-0 bg-background/95 backdrop-blur-xl border-border/50">
                 <DialogHeader className="p-6 border-b shrink-0">
                     <DialogTitle>Dividir Cuenta</DialogTitle>
                     <DialogDescription>Arrastra los items entre las diferentes cuentas</DialogDescription>
