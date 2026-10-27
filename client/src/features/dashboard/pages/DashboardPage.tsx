@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { ScrollArea } from "@/components/ui/display/scroll-area";
 import {
   BarChart3, DollarSign, Users, TrendingUp, LogOut,
-  Loader2, Building2, Clock, ShoppingBag, Award, FileText
+  Loader2, Building2, Clock, ShoppingBag, Award, FileText, Boxes
 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -253,6 +253,23 @@ export default function Dashboard() {
               </div>
             </CardContent>
           </Card>
+
+          {empleado?.rol !== "MOZO" && (
+            <Card
+              className="bg-emerald-500/10 border-emerald-500/30 cursor-pointer hover:bg-emerald-500/20 transition-colors"
+              onClick={() => navigate("/inventario")}
+            >
+              <CardContent className="p-4 flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center">
+                  <Boxes className="h-5 w-5 text-emerald-400" />
+                </div>
+                <div>
+                  <p className="font-semibold text-foreground">Inventario</p>
+                  <p className="text-xs text-muted-foreground">Insumos y kardex</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           <Card
             className="bg-blue-500/10 border-blue-500/30 cursor-pointer hover:bg-blue-500/20 transition-colors"

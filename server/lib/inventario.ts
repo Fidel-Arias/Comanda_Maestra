@@ -1,6 +1,8 @@
 import { and, eq, sql } from "drizzle-orm";
 import type { getDb } from "../db";
-import { insumos, movimientosInventario } from "../../drizzle/schema";
+import { TRPCError } from "@trpc/server";
+import * as dbModule from "../db";
+import { insumos, movimientosInventario, type Empleado } from "../../drizzle/schema";
 
 type Db = NonNullable<Awaited<ReturnType<typeof getDb>>>;
 /** Parametro del callback de `db.transaction(async tx => ...)`. */
@@ -116,4 +118,61 @@ export async function aplicarMovimiento(
     agotado: saldo <= 0,
     nombre: row.nombre,
   };
+}
+
+const ROLES_INVENTARIO = ["CAJERO", "DUENO", "ADMIN"];
+
+/** Solo CAJERO/DUENO/ADMIN de la misma empresa pueden modificar inventario. */
+export async function exigirRolInventario(empleadoId: number, empresaId: number): Promise<Empleado> {
+  const empleado = await dbModule.getEmpleadoById(empleadoId);
+  if (!empleado || empleado.empresaId !== empresaId || !ROLES_INVENTARIO.includes(empleado.userRole)) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "No tienes permiso para modificar el inventario" });
+  }
+  return empleado;
+}
+
+export type MovimientoKardex = {
+  createdAt: Date;
+  tipo: TipoMovimiento;
+  motivo: MotivoMovimiento;
+  cantidad: string;
+  saldoDespues: string;
+  costoUnitario: string | null;
+  referenciaTipo: string | null;
+  referenciaId: number | null;
+};
+
+export type FilaKardex = {
+  fecha: Date;
+  tipo: TipoMovimiento;
+  motivo: MotivoMovimiento;
+  entrada: string;
+  salida: string;
+  saldo: string;
+  costoUnitario: string | null;
+  referencia: string | null;
+};
+
+/** Kardex fisico. Entrada/salida se derivan de la diferencia de saldos (AJUSTE guarda el saldo objetivo en `cantidad`). */
+export function armarKardex(
+  saldoInicial: number,
+  movs: MovimientoKardex[],
+): { saldoInicial: string; filas: FilaKardex[] } {
+  let previo = saldoInicial;
+  const filas = movs.map(m => {
+    const saldo = Number(m.saldoDespues);
+    const delta = r3(saldo - previo);
+    previo = saldo;
+    return {
+      fecha: m.createdAt,
+      tipo: m.tipo,
+      motivo: m.motivo,
+      entrada: (delta > 0 ? delta : 0).toFixed(3),
+      salida: (delta < 0 ? -delta : 0).toFixed(3),
+      saldo: saldo.toFixed(3),
+      costoUnitario: m.costoUnitario,
+      referencia: m.referenciaTipo ? `${m.referenciaTipo}${m.referenciaId != null ? ` #${m.referenciaId}` : ""}` : null,
+    };
+  });
+  return { saldoInicial: r3(saldoInicial).toFixed(3), filas };
 }

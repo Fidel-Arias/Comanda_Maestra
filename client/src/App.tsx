@@ -20,6 +20,8 @@ import HistorialVentas from "./features/cashier/pages/HistorialVentasPage";
 import Reportes from "./features/dashboard/pages/ReportesPage";
 import ConfiguracionEmpresa from "./features/management/pages/ConfiguracionEmpresaPage";
 import Facturacion from "./features/billing/pages/InvoicesPage";
+import InsumosPage from "./features/inventory/pages/InsumosPage";
+import KardexPage from "./features/inventory/pages/KardexPage";
 import KitchenPage from "./features/production/pages/KitchenPage";
 import BarPage from "./features/production/pages/BarPage";
 
@@ -35,6 +37,9 @@ function Router() {
       <Route path="/gestion/productos" component={GestionProductos} />
       <Route path="/gestion/mesas" component={GestionMesas} />
       <Route path="/gestion/categorias" component={GestionCategorias} />
+      {/* Inventario */}
+      <Route path="/inventario" component={InsumosPage} />
+      <Route path="/inventario/kardex/:insumoId" component={KardexPage} />
       {/* Facturación */}
       <Route path="/facturacion" component={Facturacion} />
       {/* Reservas */}

@@ -8,6 +8,7 @@ import { TRPCError } from "@trpc/server";
 import { validarMesaEnZona } from "@shared/zonas";
 import * as db from "./db";
 import { publish } from "./lib/events";
+import { aplicarMovimiento, armarKardex, exigirRolInventario, type MovimientoInput } from "./lib/inventario";
 import * as nubefact from "./lib/nubefact";
 import { normalizarDocumento } from "./lib/documento";
 import { toPublicEmpresa } from "./lib/empresa";
@@ -44,6 +45,33 @@ async function assertMesaEnZona(
   const mesasZona = await db.getMesasByZona(zonaId, empresaId);
   const error = validarMesaEnZona(zona, mesasZona, nueva);
   if (error) throw new TRPCError({ code: "BAD_REQUEST", message: error });
+}
+
+const unidadInsumo = z.enum(["UND", "KG", "G", "L", "ML"]);
+
+async function assertInsumoSinDuplicado(empresaId: number, codigo: string | undefined, codigoBarras: string | null | undefined, excluirId?: number) {
+  const dup = await db.findInsumoDuplicado(empresaId, codigo, codigoBarras, excluirId);
+  if (dup) {
+    throw new TRPCError({ code: "CONFLICT", message: "Ya existe un insumo con ese código o código de barras" });
+  }
+}
+
+/** Valida rol, aplica el movimiento en una transaccion y publica insumo_stock tras el commit. */
+async function moverInsumo(
+  empresaId: number,
+  empleadoId: number,
+  m: Omit<MovimientoInput, "empresaId" | "empleadoId">,
+) {
+  await exigirRolInventario(empleadoId, empresaId);
+  const insumo = await db.getInsumoById(m.insumoId, empresaId);
+  if (!insumo) throw new TRPCError({ code: "NOT_FOUND", message: "Insumo no encontrado" });
+  const r = await db.runInTransaction(tx => aplicarMovimiento(tx, { ...m, empresaId, empleadoId }));
+  try {
+    publish(empresaId, { type: "insumo_stock", insumoId: m.insumoId, stock: r.saldoDespues, bajo: r.bajo });
+  } catch (err) {
+    console.error("[insumo] publish failed:", err);
+  }
+  return { success: true, saldo: r.saldoDespues, bajo: r.bajo, agotado: r.agotado };
 }
 
 export const appRouter = router({
@@ -228,6 +256,130 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         await db.deleteMesa(input.id);
         return { success: true };
+      }),
+  }),
+
+  // ============================================
+  // INSUMO ROUTER
+  // ============================================
+  insumo: router({
+    listByEmpresa: publicProcedure
+      .input(z.object({ empresaId: z.number() }))
+      .query(async ({ input }) => db.getInsumosByEmpresa(input.empresaId)),
+
+    buscarPorCodigo: publicProcedure
+      .input(z.object({ empresaId: z.number(), codigo: z.string().trim().min(1) }))
+      .query(async ({ input }) => (await db.buscarInsumoPorCodigo(input.empresaId, input.codigo)) ?? null),
+
+    create: publicProcedure
+      .input(z.object({
+        empresaId: z.number(),
+        nombre: z.string().trim().min(1).max(255),
+        codigo: z.string().trim().min(1).max(40),
+        codigoBarras: z.string().trim().max(64).optional(),
+        unidad: unidadInsumo,
+        stockMinimo: z.number().min(0),
+        empleadoId: z.number(),
+      }))
+      .mutation(async ({ input }) => {
+        await exigirRolInventario(input.empleadoId, input.empresaId);
+        const { empleadoId: _e, stockMinimo, codigoBarras, ...rest } = input;
+        await assertInsumoSinDuplicado(input.empresaId, rest.codigo, codigoBarras || null);
+        const insumoId = await db.createInsumo({
+          ...rest,
+          codigoBarras: codigoBarras || null,
+          stockMinimo: stockMinimo.toFixed(3),
+        });
+        return { success: true, insumoId };
+      }),
+
+    update: publicProcedure
+      .input(z.object({
+        id: z.number(),
+        empresaId: z.number(),
+        nombre: z.string().trim().min(1).max(255).optional(),
+        codigo: z.string().trim().min(1).max(40).optional(),
+        codigoBarras: z.string().trim().max(64).nullable().optional(),
+        unidad: unidadInsumo.optional(),
+        stockMinimo: z.number().min(0).optional(),
+        empleadoId: z.number(),
+      }))
+      .mutation(async ({ input }) => {
+        await exigirRolInventario(input.empleadoId, input.empresaId);
+        const { id, empresaId, empleadoId: _e, stockMinimo, codigoBarras, ...rest } = input;
+        const actual = await db.getInsumoById(id, empresaId);
+        if (!actual) throw new TRPCError({ code: "NOT_FOUND", message: "Insumo no encontrado" });
+        const barras = codigoBarras === undefined ? undefined : codigoBarras || null;
+        await assertInsumoSinDuplicado(empresaId, rest.codigo, barras, id);
+        await db.updateInsumo(id, empresaId, {
+          ...rest,
+          ...(barras !== undefined ? { codigoBarras: barras } : {}),
+          ...(stockMinimo !== undefined ? { stockMinimo: stockMinimo.toFixed(3) } : {}),
+        });
+        return { success: true };
+      }),
+
+    delete: publicProcedure
+      .input(z.object({ id: z.number(), empresaId: z.number(), empleadoId: z.number() }))
+      .mutation(async ({ input }) => {
+        await exigirRolInventario(input.empleadoId, input.empresaId);
+        await db.desactivarInsumo(input.id, input.empresaId);
+        return { success: true };
+      }),
+
+    registrarIngreso: publicProcedure
+      .input(z.object({
+        empresaId: z.number(),
+        insumoId: z.number(),
+        cantidad: z.number().positive(),
+        costoUnitario: z.number().min(0).optional(),
+        empleadoId: z.number(),
+      }))
+      .mutation(async ({ input }) =>
+        moverInsumo(input.empresaId, input.empleadoId, {
+          insumoId: input.insumoId, tipo: "ENTRADA", motivo: "AJUSTE_MANUAL",
+          cantidad: input.cantidad, costoUnitario: input.costoUnitario,
+        })),
+
+    registrarMerma: publicProcedure
+      .input(z.object({
+        empresaId: z.number(),
+        insumoId: z.number(),
+        cantidad: z.number().positive(),
+        motivo: z.literal("MERMA"),
+        empleadoId: z.number(),
+      }))
+      .mutation(async ({ input }) =>
+        moverInsumo(input.empresaId, input.empleadoId, {
+          insumoId: input.insumoId, tipo: "SALIDA", motivo: "MERMA", cantidad: input.cantidad,
+        })),
+
+    ajustar: publicProcedure
+      .input(z.object({
+        empresaId: z.number(),
+        insumoId: z.number(),
+        nuevoSaldo: z.number().min(0),
+        empleadoId: z.number(),
+      }))
+      .mutation(async ({ input }) =>
+        moverInsumo(input.empresaId, input.empleadoId, {
+          insumoId: input.insumoId, tipo: "AJUSTE", motivo: "AJUSTE_MANUAL", cantidad: input.nuevoSaldo,
+        })),
+
+    listAgotados: publicProcedure
+      .input(z.object({ empresaId: z.number() }))
+      .query(async ({ input }) => {
+        const todos = await db.getInsumosByEmpresa(input.empresaId);
+        return todos
+          .filter(i => i.activo && Number(i.stock) <= 0)
+          .map(i => ({ id: i.id, nombre: i.nombre, stock: i.stock }));
+      }),
+
+    kardex: publicProcedure
+      .input(z.object({ empresaId: z.number(), insumoId: z.number(), desde: z.coerce.date(), hasta: z.coerce.date() }))
+      .query(async ({ input }) => {
+        const { saldoInicial, movs } = await db.getKardexRows(input.empresaId, input.insumoId, input.desde, input.hasta);
+        return armarKardex(saldoInicial, movs);
       }),
   }),
 

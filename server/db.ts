@@ -17,7 +17,8 @@ import {
   cajas, InsertCaja,
   ventas, InsertVenta, Venta,
   comprobantes, InsertComprobante, Comprobante,
-  comprobanteItems, InsertComprobanteItem, ComprobanteItem
+  comprobanteItems, InsertComprobanteItem, ComprobanteItem,
+  insumos, InsertInsumo, movimientosInventario
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -1710,4 +1711,91 @@ export async function deletePedido(id: number) {
       .set({ tableStatus: "DISPONIBLE", mozoAsignadoId: null })
       .where(eq(mesas.id, pedido.mesaId));
   });
+}
+
+
+// ============================================
+// INSUMOS / INVENTARIO
+// ============================================
+
+export async function runInTransaction<T>(fn: (tx: Parameters<Parameters<NonNullable<Awaited<ReturnType<typeof getDb>>>["transaction"]>[0]>[0]) => Promise<T>): Promise<T> {
+  const db = await getDb();
+  if (!db) throw new Error("Base de datos no disponible");
+  return db.transaction(fn);
+}
+
+export async function getInsumosByEmpresa(empresaId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(insumos).where(and(eq(insumos.empresaId, empresaId), eq(insumos.activo, true))).orderBy(asc(insumos.nombre));
+}
+
+export async function getInsumoById(id: number, empresaId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const r = await db.select().from(insumos).where(and(eq(insumos.id, id), eq(insumos.empresaId, empresaId))).limit(1);
+  return r[0];
+}
+
+/** Busca un insumo activo por codigo de barras o codigo interno. */
+export async function buscarInsumoPorCodigo(empresaId: number, codigo: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const r = await db.select().from(insumos).where(and(
+    eq(insumos.empresaId, empresaId),
+    eq(insumos.activo, true),
+    or(eq(insumos.codigoBarras, codigo), eq(insumos.codigo, codigo)),
+  )).limit(1);
+  return r[0];
+}
+
+/** Insumo (activo o no, el indice unico no distingue) que ya usa el codigo o codigo de barras. */
+export async function findInsumoDuplicado(empresaId: number, codigo: string | undefined, codigoBarras: string | null | undefined, excluirId?: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const conds = [] as ReturnType<typeof eq>[];
+  if (codigo) conds.push(eq(insumos.codigo, codigo));
+  if (codigoBarras) conds.push(eq(insumos.codigoBarras, codigoBarras));
+  if (conds.length === 0) return undefined;
+  const r = await db.select().from(insumos).where(and(
+    eq(insumos.empresaId, empresaId),
+    or(...conds),
+    ...(excluirId !== undefined ? [sql`${insumos.id} <> ${excluirId}`] : []),
+  )).limit(1);
+  return r[0];
+}
+
+export async function createInsumo(data: InsertInsumo): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Base de datos no disponible");
+  const [r] = await db.insert(insumos).values(data).returning({ id: insumos.id });
+  return r.id;
+}
+
+export async function updateInsumo(id: number, empresaId: number, data: Partial<InsertInsumo>) {
+  const db = await getDb();
+  if (!db) return;
+  await db.update(insumos).set(data).where(and(eq(insumos.id, id), eq(insumos.empresaId, empresaId)));
+}
+
+export async function desactivarInsumo(id: number, empresaId: number) {
+  await updateInsumo(id, empresaId, { activo: false });
+}
+
+/** Movimientos del rango y saldo previo (saldoDespues del ultimo movimiento anterior a `desde`, 0 si no hay). */
+export async function getKardexRows(empresaId: number, insumoId: number, desde: Date, hasta: Date) {
+  const db = await getDb();
+  if (!db) return { saldoInicial: 0, movs: [] };
+  const prev = await db.select({ saldo: movimientosInventario.saldoDespues }).from(movimientosInventario).where(and(
+    eq(movimientosInventario.empresaId, empresaId),
+    eq(movimientosInventario.insumoId, insumoId),
+    sql`${movimientosInventario.createdAt} < ${desde}`,
+  )).orderBy(desc(movimientosInventario.createdAt), desc(movimientosInventario.id)).limit(1);
+  const movs = await db.select().from(movimientosInventario).where(and(
+    eq(movimientosInventario.empresaId, empresaId),
+    eq(movimientosInventario.insumoId, insumoId),
+    gte(movimientosInventario.createdAt, desde),
+    lte(movimientosInventario.createdAt, hasta),
+  )).orderBy(asc(movimientosInventario.createdAt), asc(movimientosInventario.id));
+  return { saldoInicial: prev[0] ? Number(prev[0].saldo) : 0, movs };
 }
