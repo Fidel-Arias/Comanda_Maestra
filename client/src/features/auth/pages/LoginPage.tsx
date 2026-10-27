@@ -167,7 +167,7 @@ export default function Login() {
                 )}
               </div>
               <div>
-                <h1 className="text-xl font-bold text-foreground">Comanda Maestra</h1>
+                <h1 className="text-xl font-bold text-foreground">Sistema Restaurante</h1>
                 <p className="text-xs text-muted-foreground">Sistema POS para Restaurantes</p>
               </div>
             </div>
@@ -352,7 +352,7 @@ export default function Login() {
       {/* Footer */}
       <footer className="border-t border-border/50 py-4">
         <div className="container text-center text-sm text-muted-foreground">
-          Comanda Maestra © 2024 - Sistema POS Profesional
+          Sistema Restaurante © 2026 - Sistema POS Profesional
         </div>
       </footer>
     </div>

@@ -235,7 +235,7 @@ export default function Reportes() {
 <body>
   <div class="header">
     <h1>${title}</h1>
-    <p class="subtitle">Reporte generado por Comanda Maestra</p>
+    <p class="subtitle">Reporte generado por Sistema Restaurante</p>
   </div>
   
   <div class="info-grid">
@@ -291,7 +291,7 @@ export default function Reportes() {
   </div>
 
   <div class="footer">
-    <p>Comanda Maestra - Sistema POS Profesional</p>
+    <p>Sistema Restaurante - Sistema POS Profesional</p>
     <p>Este documento fue generado automáticamente y no requiere firma.</p>
   </div>
 </body>
