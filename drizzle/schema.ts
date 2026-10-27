@@ -408,6 +408,8 @@ export const movimientosInventario = pgTable("movimientos_inventario", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 }, (t) => [
   index("movimientos_insumo_created").on(t.insumoId, t.createdAt),
+  // Reposicion por item de pedido (Task 10) busca por referencia.
+  index("movimientos_referencia").on(t.referenciaTipo, t.referenciaId),
 ]);
 
 export type MovimientoInventario = typeof movimientosInventario.$inferSelect;

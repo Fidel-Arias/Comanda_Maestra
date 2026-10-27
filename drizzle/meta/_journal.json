@@ -36,6 +36,13 @@
       "when": 1793115665137,
       "tag": "0004_right_starfox",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793116600350,
+      "tag": "0005_huge_caretaker",
+      "breakpoints": true
     }
   ]
 }

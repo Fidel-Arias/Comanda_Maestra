@@ -41,6 +41,8 @@ vi.mock("./db", () => ({
   getVentasPorHora: vi.fn().mockResolvedValue([]),
   getVentasPorCategoria: vi.fn().mockResolvedValue([]),
   addItemPedido: vi.fn().mockResolvedValue(77),
+  runInTransaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn({})),
+  getRecetasByProductos: vi.fn().mockResolvedValue([]),
   updateProductoStock: vi.fn().mockResolvedValue(undefined),
   getPedidoById: vi.fn().mockResolvedValue({ id: 9, empresaId: 1, mesaId: 1, mozoId: 1 }),
   getProductoById: vi.fn().mockResolvedValue({ id: 1, categoriaId: 2 }),
@@ -49,7 +51,8 @@ vi.mock("./db", () => ({
   getItemContext: vi.fn().mockResolvedValue({ empresaId: 1, mozoId: 1, mesaNumero: 3 }),
 }));
 
-vi.mock("./lib/events", () => ({
+vi.mock("./lib/events", async importOriginal => ({
+  ...(await importOriginal<typeof import("./lib/events")>()),
   publish: vi.fn(),
 }));
 

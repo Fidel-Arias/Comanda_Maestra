@@ -176,3 +176,123 @@ export function armarKardex(
   });
   return { saldoInicial: r3(saldoInicial).toFixed(3), filas };
 }
+
+// ============================================
+// CONSUMO POR PEDIDO (Task 10)
+// ============================================
+
+export class StockInsuficienteError extends Error {
+  constructor(public insumoId: number, public nombre: string) {
+    super(`Sin stock de ${nombre}`);
+  }
+}
+
+export type InsumoTocado = { insumoId: number; stock: string; bajo: boolean; agotado: boolean; nombre: string };
+
+const REF_ITEM = "ITEM_PEDIDO";
+
+async function mover(
+  tx: Tx,
+  empresaId: number,
+  insumoId: number,
+  cantidad: number,
+  salida: boolean,
+  referenciaId: number,
+  empleadoId: number | null,
+): Promise<InsumoTocado | undefined> {
+  const row = await dbModule.ajustarStockInsumo(tx, empresaId, insumoId, salida ? -cantidad : cantidad);
+  if (!row) return undefined;
+  await dbModule.insertMovimientoInventario(tx, {
+    empresaId,
+    insumoId,
+    tipo: salida ? "SALIDA" : "ENTRADA",
+    motivo: salida ? "CONSUMO_PEDIDO" : "ANULACION",
+    cantidad: cantidad.toFixed(3),
+    saldoDespues: row.stock,
+    referenciaTipo: REF_ITEM,
+    referenciaId,
+    empleadoId,
+  });
+  const saldo = Number(row.stock);
+  return { insumoId, stock: row.stock, bajo: saldo <= Number(row.stockMinimo), agotado: salida && saldo <= 0, nombre: row.nombre };
+}
+
+async function recetaDe(productoId: number, empresaId: number) {
+  const rows = await dbModule.getRecetasByProductos([productoId], empresaId);
+  return rows.map(r => ({ insumoId: r.insumoId, cantidad: Number(r.cantidad) }));
+}
+
+/**
+ * Descuenta la receta x cantidad dentro de `tx`, insumo por insumo en orden de id (evita deadlocks).
+ * El UPDATE es condicional (stock >= n): si falta stock lanza StockInsuficienteError y el llamador
+ * debe dejar que la transaccion haga rollback completo.
+ */
+export async function descontarInsumosItem(
+  tx: Tx,
+  p: { empresaId: number; itemId: number; productoId: number; cantidad: number; empleadoId: number | null },
+): Promise<InsumoTocado[]> {
+  const consumo = consumoPorPlato(await recetaDe(p.productoId, p.empresaId), p.cantidad)
+    .filter(c => c.cantidad > 0)
+    .sort((a, b) => a.insumoId - b.insumoId);
+  const tocados: InsumoTocado[] = [];
+  for (const c of consumo) {
+    const t = await mover(tx, p.empresaId, c.insumoId, c.cantidad, true, p.itemId, p.empleadoId);
+    if (!t) {
+      const ins = await dbModule.getInsumoById(c.insumoId, p.empresaId);
+      throw new StockInsuficienteError(c.insumoId, ins?.nombre ?? `insumo #${c.insumoId}`);
+    }
+    tocados.push(t);
+  }
+  return tocados;
+}
+
+/**
+ * Repone (ENTRADA/ANULACION) lo pendiente de cada item: SALIDAs registradas menos ENTRADAs ya hechas
+ * con la misma referencia, asi nunca se repone dos veces. Con `cantidad` repone solo receta x cantidad
+ * (tope: lo pendiente). Aplica todo en orden global de insumoId.
+ * El llamador debe tener bloqueadas las filas de los items (DELETE / FOR UPDATE) para serializar.
+ */
+export async function reponerInsumosItems(
+  tx: Tx,
+  empresaId: number,
+  items: { itemId: number; productoId: number; cantidad?: number }[],
+): Promise<InsumoTocado[]> {
+  if (items.length === 0) return [];
+  const movs = await dbModule.getMovimientosItems(tx, empresaId, items.map(i => i.itemId));
+  const ops: { itemId: number; insumoId: number; cantidad: number }[] = [];
+  for (const it of items) {
+    const pendiente = new Map<number, number>();
+    for (const m of movs) {
+      if (m.referenciaId !== it.itemId) continue;
+      const signo = m.tipo === "SALIDA" ? 1 : m.tipo === "ENTRADA" ? -1 : 0;
+      pendiente.set(m.insumoId, (pendiente.get(m.insumoId) ?? 0) + signo * Number(m.cantidad));
+    }
+    const objetivo = it.cantidad === undefined
+      ? Array.from(pendiente, ([insumoId, cantidad]) => ({ insumoId, cantidad }))
+      : consumoPorPlato(await recetaDe(it.productoId, empresaId), it.cantidad)
+          .map(c => ({ insumoId: c.insumoId, cantidad: Math.min(c.cantidad, pendiente.get(c.insumoId) ?? 0) }));
+    for (const o of objetivo) {
+      const cantidad = r3(o.cantidad);
+      if (cantidad > 0) ops.push({ itemId: it.itemId, insumoId: o.insumoId, cantidad });
+    }
+  }
+  ops.sort((a, b) => a.insumoId - b.insumoId);
+  const tocados: InsumoTocado[] = [];
+  for (const op of ops) {
+    const t = await mover(tx, empresaId, op.insumoId, op.cantidad, false, op.itemId, null);
+    if (!t) throw new Error(`Insumo ${op.insumoId} no existe para la empresa ${empresaId}`);
+    tocados.push(t);
+  }
+  return tocados;
+}
+
+/** Porciones que alcanzan con el stock actual; null si no hay receta. Insumo ausente (inactivo) = 0. */
+export function porcionesDisponibles(
+  receta: { insumoId: number; cantidad: number }[],
+  stocks: Map<number, number>,
+): number | null {
+  if (receta.length === 0) return null;
+  // El epsilon evita que 0.6 / 0.2 = 2.9999... cuente como 2.
+  const min = Math.min(...receta.map(r => Math.floor((stocks.get(r.insumoId) ?? 0) / r.cantidad + 1e-9)));
+  return Math.max(0, min);
+}

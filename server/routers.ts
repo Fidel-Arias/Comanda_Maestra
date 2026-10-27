@@ -7,8 +7,11 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { validarMesaEnZona } from "@shared/zonas";
 import * as db from "./db";
-import { publish } from "./lib/events";
-import { aplicarMovimiento, armarKardex, exigirRolInventario, type MovimientoInput } from "./lib/inventario";
+import { publish, throttle } from "./lib/events";
+import {
+  aplicarMovimiento, armarKardex, descontarInsumosItem, exigirRolInventario, porcionesDisponibles,
+  reponerInsumosItems, StockInsuficienteError, type InsumoTocado, type MovimientoInput, type Tx,
+} from "./lib/inventario";
 import { agregarGastos, centsToStr, subtotalCents } from "./lib/compras";
 import * as nubefact from "./lib/nubefact";
 import { normalizarDocumento } from "./lib/documento";
@@ -75,6 +78,44 @@ async function moverInsumo(
     console.error("[insumo] publish failed:", err);
   }
   return { success: true, saldo: r.saldoDespues, bajo: r.bajo, agotado: r.agotado };
+}
+
+/** Publica insumo_stock (ultimo saldo por insumo) e insumo_agotado. Nunca hace fallar la mutacion. */
+async function avisarInsumos(
+  empresaId: number,
+  tocados: InsumoTocado[],
+  agotados: { insumoId: number; nombre: string }[],
+  mesaNumero?: () => Promise<number | undefined>,
+) {
+  try {
+    for (const t of Array.from(new Map(tocados.map(t => [t.insumoId, t])).values())) {
+      publish(empresaId, { type: "insumo_stock", insumoId: t.insumoId, stock: t.stock, bajo: t.bajo });
+    }
+    if (agotados.length === 0) return;
+    const numero = await mesaNumero?.();
+    for (const a of agotados) {
+      publish(empresaId, { type: "insumo_agotado", insumoId: a.insumoId, nombre: a.nombre, mesaNumero: numero });
+    }
+  } catch (err) {
+    console.error("[inventario] publish failed:", err);
+  }
+}
+
+/** Corre `fn` en una transaccion; si falta stock, tras el rollback avisa insumo_agotado y responde PRECONDITION_FAILED. */
+async function conStock<T>(empresaId: number, mesaNumero: () => Promise<number | undefined>, fn: (tx: Tx) => Promise<T>): Promise<T> {
+  try {
+    return await db.runInTransaction(fn);
+  } catch (err) {
+    if (!(err instanceof StockInsuficienteError)) throw err;
+    await avisarInsumos(empresaId, [], [err], mesaNumero);
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: err.message });
+  }
+}
+
+/** Repone el stock de los items que se eliminan/anulan (los ya CANCELADO no se reponen). */
+function reponerItems(tx: Tx, empresaId: number, items: { id: number; productoId: number; estado: string }[]) {
+  const activos = items.filter(i => i.estado !== "CANCELADO").map(i => ({ itemId: i.id, productoId: i.productoId }));
+  return reponerInsumosItems(tx, empresaId, activos);
 }
 
 export const appRouter = router({
@@ -269,6 +310,24 @@ export const appRouter = router({
     listByEmpresa: publicProcedure
       .input(z.object({ empresaId: z.number() }))
       .query(async ({ input }) => db.getInsumosByEmpresa(input.empresaId)),
+
+    disponibilidadPorPlato: publicProcedure
+      .input(z.object({ empresaId: z.number() }))
+      .query(async ({ input }): Promise<{ productoId: number; porcionesDisponibles: number | null }[]> => {
+        const [productos, insumos] = await Promise.all([
+          db.getProductosByEmpresa(input.empresaId),
+          db.getInsumosByEmpresa(input.empresaId), // solo activos: los inactivos cuentan como stock 0
+        ]);
+        const recetas = await db.getRecetasByProductos(productos.map(p => p.id), input.empresaId);
+        const stocks = new Map(insumos.map(i => [i.id, Number(i.stock)]));
+        return productos.map(p => ({
+          productoId: p.id,
+          porcionesDisponibles: porcionesDisponibles(
+            recetas.filter(r => r.productoId === p.id).map(r => ({ insumoId: r.insumoId, cantidad: Number(r.cantidad) })),
+            stocks,
+          ),
+        }));
+      }),
 
     buscarPorCodigo: publicProcedure
       .input(z.object({ empresaId: z.number(), codigo: z.string().trim().min(1) }))
@@ -770,7 +829,15 @@ export const appRouter = router({
         estado: z.enum(["PENDIENTE", "PREPARANDO", "LISTO", "ENTREGADO", "CANCELADO"])
       }))
       .mutation(async ({ input }) => {
-        await db.updatePedidoEstado(input.id, input.estado);
+        if (input.estado !== "CANCELADO") {
+          await db.updatePedidoEstado(input.id, input.estado);
+          return { success: true };
+        }
+        const r = await db.runInTransaction(async tx => {
+          const p = await db.cancelarPedido(tx, input.id);
+          return p && { empresaId: p.empresaId, tocados: await reponerItems(tx, p.empresaId, p.items) };
+        });
+        if (r) await avisarInsumos(r.empresaId, r.tocados, []);
         return { success: true };
       }),
 
@@ -789,7 +856,11 @@ export const appRouter = router({
     delete: publicProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
-        await db.deletePedido(input.id);
+        const r = await db.runInTransaction(async tx => {
+          const p = await db.deletePedido(tx, input.id);
+          return p && { empresaId: p.empresaId, tocados: await reponerItems(tx, p.empresaId, p.items) };
+        });
+        if (r) await avisarInsumos(r.empresaId, r.tocados, []);
         return { success: true };
       }),
   }),
@@ -814,25 +885,40 @@ export const appRouter = router({
         notas: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
-        const itemId = await db.addItemPedido({
-          pedidoId: input.pedidoId,
-          productoId: input.productoId,
-          cantidad: input.cantidad,
-          precioUnitario: input.precioUnitario,
-          subtotal: input.subtotal,
-          notas: input.notas,
+        const pedido = await db.getPedidoById(input.pedidoId);
+        if (!pedido) throw new TRPCError({ code: "NOT_FOUND", message: "Pedido no encontrado" });
+        const mesaNumero = async () => (await db.getMesaById(pedido.mesaId))?.numero;
+
+        // Item + descuento de insumos en una sola transaccion: si falta stock no se crea el item.
+        const { itemId, tocados } = await conStock(pedido.empresaId, mesaNumero, async tx => {
+          const itemId = await db.addItemPedido(tx, {
+            pedidoId: input.pedidoId,
+            productoId: input.productoId,
+            cantidad: input.cantidad,
+            precioUnitario: input.precioUnitario,
+            subtotal: input.subtotal,
+            notas: input.notas,
+          });
+          const tocados = await descontarInsumosItem(tx, {
+            empresaId: pedido.empresaId, itemId, productoId: input.productoId, cantidad: input.cantidad, empleadoId: pedido.mozoId,
+          });
+          return { itemId, tocados };
         });
 
         // Actualizar stock del producto
         await db.updateProductoStock(input.productoId, input.cantidad);
 
-        // Notificar a cocina/bar (nunca debe hacer fallar la mutación)
+        await avisarInsumos(pedido.empresaId, tocados, tocados.filter(t => t.agotado), mesaNumero);
+
+        // Notificar a cocina/bar (nunca debe hacer fallar la mutación). Agrupado por (pedido, area)
+        // para que un pedido de N items no suene N veces.
         try {
-          const pedido = await db.getPedidoById(input.pedidoId);
           const producto = await db.getProductoById(input.productoId);
           const categoria = producto ? await db.getCategoriaById(producto.categoriaId) : undefined;
-          if (pedido && categoria) {
-            publish(pedido.empresaId, { type: "comanda_nueva", area: categoria.area, pedidoId: input.pedidoId });
+          if (categoria) {
+            const area = categoria.area;
+            throttle(`${input.pedidoId}:${area}`, () =>
+              publish(pedido.empresaId, { type: "comanda_nueva", area, pedidoId: input.pedidoId }));
           }
         } catch (err) {
           console.error("[itemPedido.add] publish failed:", err);
@@ -848,14 +934,33 @@ export const appRouter = router({
         subtotal: z.string(),
       }))
       .mutation(async ({ input }) => {
-        await db.updateItemCantidad(input.id, input.cantidad, input.subtotal);
+        const ctx = await db.getItemContext(input.id);
+        if (!ctx) throw new TRPCError({ code: "NOT_FOUND", message: "Item no encontrado" });
+        // Solo se mueve la diferencia: sube -> descuento (con bloqueo), baja -> reposicion.
+        const tocados = await conStock(ctx.empresaId, async () => ctx.mesaNumero, async tx => {
+          const item = await db.getItemParaActualizar(tx, input.id);
+          if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "Item no encontrado" });
+          await db.updateItemCantidad(tx, input.id, input.cantidad, input.subtotal);
+          const diff = input.cantidad - item.cantidad;
+          if (item.estado === "CANCELADO" || diff === 0) return [];
+          const ref = { itemId: item.id, productoId: item.productoId };
+          return diff > 0
+            ? descontarInsumosItem(tx, { ...ref, empresaId: ctx.empresaId, cantidad: diff, empleadoId: ctx.mozoId })
+            : reponerInsumosItems(tx, ctx.empresaId, [{ ...ref, cantidad: -diff }]);
+        });
+        await avisarInsumos(ctx.empresaId, tocados, tocados.filter(t => t.agotado), async () => ctx.mesaNumero);
         return { success: true };
       }),
 
     delete: publicProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
-        await db.deleteItem(input.id);
+        const r = await db.runInTransaction(async tx => {
+          const item = await db.deleteItem(tx, input.id);
+          const pedido = item && (await db.getPedidoById(item.pedidoId));
+          return pedido && { empresaId: pedido.empresaId, tocados: await reponerItems(tx, pedido.empresaId, [item]) };
+        });
+        if (r) await avisarInsumos(r.empresaId, r.tocados, []);
         return { success: true };
       }),
 

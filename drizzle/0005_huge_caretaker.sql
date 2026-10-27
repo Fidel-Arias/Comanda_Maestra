@@ -1,0 +1,1 @@
+CREATE INDEX "movimientos_referencia" ON "movimientos_inventario" USING btree ("referencia_tipo","referencia_id");
