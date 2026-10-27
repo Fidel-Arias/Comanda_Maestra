@@ -80,14 +80,11 @@ export default function Mozo() {
     }
   );
 
-  const { enabled: sonidoActivo, enable: activarSonido, play } = useNotificationSound();
+  const { enabled: sonidoActivo, enable: activarSonido } = useNotificationSound();
 
+  // El sonido y el aviso los da NotificacionesMozo (global); aquí solo se refresca la lista.
   useRealtime(empresa?.id, (e) => {
-    if (e.type === "item_listo" && e.mozoId === empleado?.id) {
-      play("listo");
-      toast.info(`Mesa ${e.mesaNumero}: pedido listo`);
-      refetchListos();
-    }
+    if (e.type === "item_listo" && e.mozoId === empleado?.id) refetchListos();
   });
 
   const updateItemStatusMutation = trpc.itemPedido.updateStatus.useMutation({

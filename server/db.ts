@@ -1577,16 +1577,6 @@ export async function updateComprobanteStatus(id: number, status: "PENDIENTE" | 
     .where(eq(comprobantes.id, id));
 }
 
-export async function deleteComprobante(id: number) {
-  const db = await getDb();
-  if (!db) return;
-
-  await db.transaction(async (tx) => {
-    await tx.delete(comprobanteItems).where(eq(comprobanteItems.comprobanteId, id));
-    await tx.delete(comprobantes).where(eq(comprobantes.id, id));
-  });
-}
-
 // ============================================
 // CLIENTE FUNCTIONS
 // ============================================

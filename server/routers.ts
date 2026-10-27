@@ -1675,14 +1675,6 @@ export const appRouter = router({
         }
       }),
 
-    deleteComprobante: publicProcedure
-      .input(z.object({
-        id: z.number(),
-      }))
-      .mutation(async ({ input }) => {
-        return db.deleteComprobante(input.id);
-      }),
-
     anularComprobante: publicProcedure
       .input(z.object({
         empresaId: z.number(),

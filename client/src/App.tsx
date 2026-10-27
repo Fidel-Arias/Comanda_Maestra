@@ -5,6 +5,7 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/shared/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { POSProvider } from "./features/auth/contexts/POSContext";
+import { NotificacionesMozo } from "./components/shared/NotificacionesMozo";
 
 // Pages
 import Login from "./features/auth/pages/LoginPage";
@@ -69,6 +70,7 @@ function App() {
         <POSProvider>
           <TooltipProvider>
             <Toaster position="top-center" richColors />
+            <NotificacionesMozo />
             <Router />
           </TooltipProvider>
         </POSProvider>

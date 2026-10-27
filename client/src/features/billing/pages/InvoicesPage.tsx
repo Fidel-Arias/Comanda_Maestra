@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/display/badge";
 import {
     FileText, Search, Filter, Download, ExternalLink,
     CheckCircle2, Clock, AlertCircle, ShoppingBag,
-    ArrowLeft, FileJson, FileCode, RefreshCw, Trash2, X, AlertTriangle
+    ArrowLeft, FileJson, FileCode, RefreshCw, Trash2, AlertTriangle
 } from "lucide-react";
 import {
     Dialog,
@@ -47,7 +47,6 @@ export default function InvoicesPage() {
     const consultarMutation = trpc.billing.consultarComprobante.useMutation();
     const notaCreditoMutation = trpc.billing.generateNota.useMutation();
     const anularMutation = trpc.billing.anularComprobante.useMutation();
-    const deleteMutation = trpc.billing.deleteComprobante.useMutation();
 
     const handleConsultar = async (c: any) => {
         try {
@@ -94,18 +93,6 @@ export default function InvoicesPage() {
         }
     };
 
-
-    const handleEliminarLocal = async (c: any) => {
-        if (!confirm("¿Deseas eliminar este registro SOLO del sistema local? Úsalo solo si ya lo borraste en NubeFact.")) return;
-
-        try {
-            await deleteMutation.mutateAsync({ id: c.id });
-            toast.success("Registro eliminado localmente");
-            refetch();
-        } catch (error) {
-            toast.error("Error al eliminar registro");
-        }
-    };
 
     const filteredComprobantes = comprobantes?.filter(c =>
         c.serie.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -323,16 +310,6 @@ export default function InvoicesPage() {
                                                         <Trash2 className="h-4 w-4 text-rose-500" />
                                                     </Button>
                                                 )}
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="h-8 w-8 rounded-full"
-                                                    onClick={() => handleEliminarLocal(c)}
-                                                    disabled={deleteMutation.isPending}
-                                                    title="Eliminar solo del sistema local"
-                                                >
-                                                    <X className="h-4 w-4 text-muted-foreground" />
-                                                </Button>
 
                                             </div>
                                         </div>
