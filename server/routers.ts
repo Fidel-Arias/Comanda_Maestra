@@ -158,10 +158,6 @@ export const appRouter = router({
   // CLIENTE ROUTER (búsqueda con caché en BD)
   // ============================================
   cliente: router({
-    listByEmpresa: publicProcedure
-      .input(z.object({ empresaId: z.number() }))
-      .query(async ({ input }) => db.getClientesByEmpresa(input.empresaId)),
-
     buscarPorDocumento: publicProcedure
       .input(z.object({ empresaId: z.number(), numero: z.string() }))
       .mutation(async ({ input }) => {
@@ -1725,20 +1721,6 @@ export const appRouter = router({
         } catch (err: any) {
           console.error("NubeFact Anulacion Error:", err);
           throw new Error(`Error al anular: ${err.message || "Error desconocido"}`);
-        }
-      }),
-
-    consultarEntidad: publicProcedure
-      .input(z.object({
-        empresaId: z.number().optional(),
-        numero: z.string().min(8).max(11),
-      }))
-      .mutation(async ({ input }) => {
-        try {
-          const empresa = input.empresaId ? await db.getEmpresaById(input.empresaId) : undefined;
-          return await nubefact.consultarEntidad(input.numero, empresa?.apisNetPeToken ?? undefined);
-        } catch (error: any) {
-          throw new Error(error.message);
         }
       }),
 

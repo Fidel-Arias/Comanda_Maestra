@@ -1603,12 +1603,6 @@ export async function getClienteByDocumento(empresaId: number, rucOrDni: string)
   return result[0];
 }
 
-export async function getClientesByEmpresa(empresaId: number) {
-  const db = await getDb();
-  if (!db) return [];
-  return db.select().from(clientes).where(eq(clientes.empresaId, empresaId)).orderBy(clientes.nombre);
-}
-
 export async function createCliente(data: InsertCliente) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");

@@ -135,3 +135,33 @@
 - `drizzle/0003_normal_red_hulk.sql`: tablas `insumos`, `movimientos_inventario` y `recetas` (y sus enums).
 - `drizzle/0004_right_starfox.sql`: tablas `compras` y `compra_items`.
 - `drizzle/0005_huge_caretaker.sql`: índice `movimientos_referencia` en `movimientos_inventario`.
+
+### Limitaciones conocidas de seguridad
+- `exigirRolInventario` confía en el `empleadoId` que envía el cliente y todos los procedimientos son `publicProcedure`. Además `empleado.listByEmpresa` devuelve las filas completas de empleados, incluido el `pin`. Por eso la regla "el mozo NO puede actualizar stock / recetas" se cumple en la UI y con clientes honestos; un mozo con devtools podría hacerse pasar por el dueño. Corregirlo requiere sesiones de empleado en el servidor (fuera de alcance).
+- `/api/events?empresaId=N` (SSE) no está autenticado: transmite niveles de stock, nombres de insumos, números de mesa e ids de pedido a quien adivine el `empresaId` (los mismos datos ya son accesibles por los procedimientos tRPC públicos).
+- `updateEmpresa` y otras mutaciones no validan el rol en el servidor.
+
+### Antes de aplicar las migraciones
+- [ ] Hacer un `pg_dump` nuevo.
+- [ ] Revisar `SELECT * FROM drizzle.__drizzle_migrations;`. Si está vacía pero las tablas existen (como en `backup_comanda_maestra.sql` de feb 2026), `pnpm db:push` intentaría rerunear 0000 y fallaría. Hacer baseline: insertar una fila con `created_at` = el `when` de 0000 en `drizzle/meta/_journal.json` (1771261653132) y `hash` = sha256 hex de `drizzle/0000_lumpy_landau.sql`; o aplicar 0001–0005 a mano con psql dentro de una transacción y registrarlas.
+- [ ] 0001 ahora usa `ADD COLUMN IF NOT EXISTS` para las columnas con drift (`items_pedido.pagado`, `ventas.sub_cuenta`).
+- [ ] Buscar documentos duplicados antes de crear los índices únicos: `SELECT empresa_id, dni, count(*) FROM clientes WHERE dni IS NOT NULL GROUP BY 1,2 HAVING count(*)>1;` (igual con `ruc`) y convertir los valores `''` en NULL.
+- [ ] `SELECT id, capacidad FROM mesas WHERE capacidad > 20;` (la nueva columna `sillas` copia `capacidad`; la UI y el servidor limitan la edición a 20).
+- [ ] Reiniciar el servidor después de migrar (SSE y rutas nuevas necesitan las tablas nuevas).
+
+### Decisiones de producto pendientes
+- Anular pedido / cancelar restituye insumos también de ítems ya ENTREGADOS (inflaría el kardex).
+- Desactivar un insumo vuelve imposibles de pedir los platos cuya receta lo usa (mensaje "Sin stock de X").
+- "Gastos" es solo un reporte agregado de compras (no hay registro de gastos no ligados a insumos).
+- La cocina suena una vez al enviar un pedido de varios ítems y otra ~5 s después (throttle).
+
+### Verificación manual pendiente
+- [ ] Cajero: DNI nuevo muestra "Nuevo"; el mismo DNI después muestra "Guardado"; RUC; sin API key o con clave errónea da error y la entrada manual sigue funcionando.
+- [ ] Configuración: guardar API key, recargar (el campo no se rellena); en Network solo aparece `tieneApiKey`.
+- [ ] Zonas: los límites de mesas/sillas bloquean en UI y servidor; bajar límites por debajo del uso se rechaza; las mesas existentes muestran sillas = capacidad anterior.
+- [ ] Inventario: escáner/código, merma, ajuste, compra (costo promedio), kardex por rango (su SQL nunca se ejecutó contra Postgres).
+- [ ] Receta + pedido descuenta stock al instante; con stock 0 el mozo ve "Agotado" y queda bloqueado; Caja y Dashboard reciben toast+sonido+banner; reponer cierra el toast.
+- [ ] Sonidos de cocina/bar; solo el mozo dueño oye "listo".
+- [ ] Anular pedido / borrar o reducir ítems devuelven stock (ANULACION en kardex).
+- [ ] Envío parcial: un plato agotado no bloquea a los demás; el total del pedido en Caja incluye todo lo guardado.
+- [ ] Mozo redirigido al intentar entrar a /inventario*.

@@ -8,7 +8,6 @@ import { toPublicEmpresa } from "./lib/empresa";
 vi.mock("./db", () => ({
   getClienteByDocumento: vi.fn(),
   createCliente: vi.fn(),
-  getClientesByEmpresa: vi.fn(),
   getEmpresaById: vi.fn(),
   getEmpresas: vi.fn(),
   updateEmpresa: vi.fn().mockResolvedValue(undefined),
@@ -86,14 +85,6 @@ describe("cliente.buscarPorDocumento", () => {
   it("documento inválido falla sin tocar BD", async () => {
     await expect(caller().cliente.buscarPorDocumento({ empresaId: 1, numero: "123" })).rejects.toThrow(/Documento inválido/);
     expect(db.getClienteByDocumento).not.toHaveBeenCalled();
-  });
-});
-
-describe("billing.consultarEntidad", () => {
-  it("usa el token de la empresa", async () => {
-    vi.mocked(nubefact.consultarEntidad).mockResolvedValue({ razon_social: "X" } as any);
-    await caller().billing.consultarEntidad({ empresaId: 1, numero: "12345678" });
-    expect(nubefact.consultarEntidad).toHaveBeenCalledWith("12345678", "SECRET");
   });
 });
 

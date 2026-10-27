@@ -172,21 +172,16 @@ export default function TomaPedido() {
   }, [productos, searchTerm, selectedCategoria]);
 
   // Calcular totales (los precios YA INCLUYEN IGV)
-  const { subtotal, impuesto, total } = useMemo(() => {
-    const totalConIgv = items.reduce((acc, item) => acc + item.subtotal, 0);
+  const calcularTotales = (lista: ItemPedido[]) => {
+    const totalConIgv = lista.reduce((acc, item) => acc + item.subtotal, 0);
     const igvPorcentaje = parseFloat(empresa?.impuestoPorcentaje || "10.50");
     const factorIgv = 1 + (igvPorcentaje / 100); // 1.105 para 10.5%
 
     // Desglosar: extraer el IGV del total
     const subtotalSinIgv = totalConIgv / factorIgv;
-    const igv = totalConIgv - subtotalSinIgv;
-
-    return {
-      subtotal: subtotalSinIgv,
-      impuesto: igv,
-      total: totalConIgv,
-    };
-  }, [items, empresa]);
+    return { subtotal: subtotalSinIgv, impuesto: totalConIgv - subtotalSinIgv, total: totalConIgv };
+  };
+  const { subtotal, impuesto, total } = useMemo(() => calcularTotales(items), [items, empresa]);
 
   const itemsGrouped = useMemo(() => {
     const groups: Record<number, { name: string, items: (ItemPedido & { originalIndex: number })[] }> = {};
@@ -309,13 +304,15 @@ export default function TomaPedido() {
       return;
     }
 
-    let enviando: ItemPedido | undefined;
     try {
-      // Guardar items nuevos. Cada uno enviado recibe su id al instante: si uno falla (p. ej. sin stock),
-      // un reintento no reenvia los ya guardados.
+      // Guardar items nuevos. Cada uno enviado recibe su id al instante (un reintento no reenvia los ya guardados).
+      // Un item sin stock no frena a los demas: se acumula y queda en el carrito sin enviar.
+      const guardados: ItemPedido[] = items.filter(i => i.id);
+      const fallidos: string[] = [];
+      let otroError = false;
       for (const item of items) {
-        if (!item.id) {
-          enviando = item;
+        if (item.id) continue;
+        try {
           const { itemId } = await addItemMutation.mutateAsync({
             pedidoId,
             productoId: item.productoId,
@@ -324,18 +321,33 @@ export default function TomaPedido() {
             subtotal: item.subtotal.toFixed(2),
             notas: item.notas,
           });
+          guardados.push(item);
           setItems(prev => prev.map(p => (p === item ? { ...p, id: itemId } : p)));
+        } catch (error) {
+          if (!esErrorStock(error)) { otroError = true; break; }
+          fallidos.push(`${item.nombre}: ${error.message}`);
         }
       }
-      enviando = undefined;
 
-      // Actualizar totales
-      await updateTotalesMutation.mutateAsync({
-        id: pedidoId,
-        subtotal: subtotal.toFixed(2),
-        impuesto: impuesto.toFixed(2),
-        total: total.toFixed(2),
-      });
+      // Totales de TODO lo guardado, aunque algo haya fallado (Caja cobra desde pedido.total)
+      if (guardados.length > 0) {
+        const t = calcularTotales(guardados);
+        await updateTotalesMutation.mutateAsync({
+          id: pedidoId,
+          subtotal: t.subtotal.toFixed(2),
+          impuesto: t.impuesto.toFixed(2),
+          total: t.total.toFixed(2),
+        });
+      }
+      if (otroError) {
+        toast.error("Error al enviar el pedido");
+        return;
+      }
+      if (fallidos.length > 0) {
+        toast.error(`No se pudo enviar: ${fallidos.join("; ")}. Los demás items se guardaron.`);
+        refrescarDisponibilidad();
+        return;
+      }
 
       // Cambiar estado
       if (!isCajeroReal) {
@@ -354,13 +366,8 @@ export default function TomaPedido() {
         toast.success("Pedido actualizado");
         navigate("/cajero");
       }
-    } catch (error) {
-      if (esErrorStock(error)) {
-        toast.error(`${enviando?.nombre ?? "Plato"}: ${error.message}. Los demás items quedaron guardados.`);
-        refrescarDisponibilidad();
-      } else {
-        toast.error("Error al enviar el pedido");
-      }
+    } catch {
+      toast.error("Error al enviar el pedido");
     }
   };
 
