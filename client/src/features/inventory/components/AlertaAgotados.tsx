@@ -28,6 +28,7 @@ export function useAlertaAgotados() {
       utils.insumo.listAgotados.invalidate();
       utils.insumo.listByEmpresa.invalidate();
     }
+    if (e.type === "insumo_stock" && Number(e.stock) > 0) toast.dismiss(toastAgotadoId(e.insumoId));
     if (e.type === "insumo_agotado") {
       play("alerta");
       toast.error(`Insumo agotado: ${e.nombre}`, {

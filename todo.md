@@ -122,7 +122,7 @@
 ## Clientes, inventario, mesas y notificaciones (plan 2026-10-27)
 - [x] Clientes por DNI/RUC con caché en BD y consulta a apis.net.pe (clave por empresa)
 - [x] Zonas, mesas y sillas con límites por zona
-- [x] Inventario de insumos, kardex, compras y gastos (ingreso por código o escáner)
+- [x] Inventario de insumos, kardex, compras (los gastos son un reporte agregado de compras; ingreso por código o escáner)
 - [x] Recetas por plato, descuento de stock al pedir y bloqueo al mozo si no hay stock
 - [x] Notificaciones sonoras (cocina/bar, mozo) y alerta de insumo agotado a Caja y Dueño
 

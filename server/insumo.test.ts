@@ -130,6 +130,15 @@ describe("movimientos", () => {
     expect(aplicarMovimiento).toHaveBeenCalledWith({}, expect.objectContaining({ tipo: "AJUSTE", motivo: "AJUSTE_MANUAL", cantidad: 3 }));
   });
 
+  it("ajustar a 0 publica insumo_agotado; a > 0 solo insumo_stock con el saldo nuevo", async () => {
+    vi.mocked(aplicarMovimiento).mockResolvedValueOnce({ saldoDespues: "0.000", bajo: true, agotado: true, nombre: "Arroz" });
+    await caller().insumo.ajustar({ empresaId: 1, insumoId: 7, nuevoSaldo: 0, empleadoId: 3 });
+    expect(publish).toHaveBeenCalledWith(1, { type: "insumo_agotado", insumoId: 7, nombre: "Arroz" });
+    vi.mocked(publish).mockClear();
+    await caller().insumo.ajustar({ empresaId: 1, insumoId: 7, nuevoSaldo: 15, empleadoId: 3 });
+    expect(vi.mocked(publish).mock.calls.map(c => c[1])).toEqual([{ type: "insumo_stock", insumoId: 7, stock: "15.000", bajo: false }]);
+  });
+
   it("un fallo de publish no rompe la mutacion", async () => {
     vi.mocked(publish).mockImplementationOnce(() => { throw new Error("sse"); });
     vi.spyOn(console, "error").mockImplementation(() => {});
