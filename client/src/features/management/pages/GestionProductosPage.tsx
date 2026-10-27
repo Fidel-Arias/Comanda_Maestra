@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { usePOS } from "@/features/auth/contexts/POSContext";
@@ -37,7 +37,7 @@ import {
 } from "@/components/ui/feedback/alert-dialog";
 import { 
   ArrowLeft, Plus, Pencil, Trash2, Package, Loader2, Search,
-  DollarSign, Hash, AlertTriangle
+  DollarSign, Hash, AlertTriangle, X
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -64,6 +64,8 @@ const initialForm: ProductoForm = {
   imagenUrl: "",
 };
 
+interface RecetaRow { insumoId: string; cantidad: string }
+
 export default function GestionProductos() {
   const [, navigate] = useLocation();
   const { empleado, empresa } = usePOS();
@@ -74,6 +76,9 @@ export default function GestionProductos() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [form, setForm] = useState<ProductoForm>(initialForm);
+  const [receta, setReceta] = useState<RecetaRow[]>([]);
+  const [recetaLoaded, setRecetaLoaded] = useState(false);
+  const puedeReceta = !!empleado && ["CAJERO", "DUENO", "ADMIN"].includes(empleado.rol);
 
   // Queries
   const { data: productos, isLoading, refetch } = trpc.producto.listByEmpresa.useQuery(
@@ -86,10 +91,49 @@ export default function GestionProductos() {
     { enabled: !!empresa?.id }
   );
 
+  const { data: insumos } = trpc.insumo.listByEmpresa.useQuery(
+    { empresaId: empresa?.id || 0 },
+    { enabled: !!empresa?.id && puedeReceta }
+  );
+
+  const { data: recetaActual } = trpc.receta.getByProducto.useQuery(
+    { empresaId: empresa?.id || 0, productoId: editingId || 0 },
+    { enabled: !!empresa?.id && !!editingId && isDialogOpen && puedeReceta }
+  );
+
+  useEffect(() => {
+    if (recetaActual && editingId && !recetaLoaded) {
+      setReceta(recetaActual.map((r) => ({ insumoId: String(r.insumoId), cantidad: String(parseFloat(r.cantidad)) })));
+      setRecetaLoaded(true);
+    }
+  }, [recetaActual, editingId, recetaLoaded]);
+
+  const recetaMutation = trpc.receta.save.useMutation();
+
+  // Guarda la receta tras el producto; si falla solo avisa (el producto ya quedó guardado).
+  const saveReceta = async (productoId: number) => {
+    if (!puedeReceta || !empleado || !empresa) return;
+    if (!editingId && receta.length === 0) return;
+    if (editingId && !recetaLoaded) return; // no pisar una receta que no se pudo cargar
+    try {
+      await recetaMutation.mutateAsync({
+        empresaId: empresa.id,
+        empleadoId: empleado.id,
+        productoId,
+        items: receta
+          .filter((r) => r.insumoId)
+          .map((r) => ({ insumoId: parseInt(r.insumoId), cantidad: parseFloat(r.cantidad) })),
+      });
+    } catch (e) {
+      toast.error(`El plato se guardó, pero la receta no: ${(e as { message?: string }).message || "error"}`);
+    }
+  };
+
   // Mutations
   const createMutation = trpc.producto.create.useMutation({
-    onSuccess: () => {
+    onSuccess: async (res) => {
       toast.success("Producto creado exitosamente");
+      await saveReceta(res.productoId);
       refetch();
       handleCloseDialog();
     },
@@ -99,8 +143,9 @@ export default function GestionProductos() {
   });
 
   const updateMutation = trpc.producto.update.useMutation({
-    onSuccess: () => {
+    onSuccess: async () => {
       toast.success("Producto actualizado exitosamente");
+      if (editingId) await saveReceta(editingId);
       refetch();
       handleCloseDialog();
     },
@@ -130,6 +175,8 @@ export default function GestionProductos() {
 
   const handleOpenCreate = () => {
     setForm(initialForm);
+    setReceta([]);
+    setRecetaLoaded(false);
     setEditingId(null);
     setIsDialogOpen(true);
   };
@@ -145,6 +192,8 @@ export default function GestionProductos() {
       categoriaId: producto.categoriaId.toString(),
       imagenUrl: producto.imagenUrl || "",
     });
+    setReceta([]);
+    setRecetaLoaded(false);
     setEditingId(producto.id);
     setIsDialogOpen(true);
   };
@@ -156,6 +205,12 @@ export default function GestionProductos() {
   };
 
   const handleSubmit = () => {
+    const incompleta = receta.some((r) => !r.insumoId || !(parseFloat(r.cantidad) > 0));
+    const repetida = new Set(receta.map((r) => r.insumoId)).size !== receta.length;
+    if (incompleta || repetida) {
+      toast.error("Receta: elige un insumo distinto en cada fila y una cantidad mayor a 0");
+      return;
+    }
     if (!form.nombre || !form.precio || !form.categoriaId) {
       toast.error("Completa los campos requeridos");
       return;
@@ -201,7 +256,7 @@ export default function GestionProductos() {
     return null;
   }
 
-  const isSubmitting = createMutation.isPending || updateMutation.isPending;
+  const isSubmitting = createMutation.isPending || updateMutation.isPending || recetaMutation.isPending;
 
   return (
     <div className="min-h-screen bg-background pb-20">
@@ -501,6 +556,62 @@ export default function GestionProductos() {
                 placeholder="https://ejemplo.com/imagen.jpg"
               />
             </div>
+
+            {puedeReceta && (
+              <div className="grid gap-2 border-t border-border/50 pt-4">
+                <div className="flex items-center justify-between">
+                  <Label>Receta (insumos por porción)</Label>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="gap-1"
+                    onClick={() => setReceta([...receta, { insumoId: "", cantidad: "" }])}
+                  >
+                    <Plus className="h-3 w-3" /> Insumo
+                  </Button>
+                </div>
+                {receta.map((row, i) => {
+                  const unidad = insumos?.find((x) => String(x.id) === row.insumoId)?.unidad;
+                  return (
+                    <div key={i} className="flex items-center gap-2">
+                      <Select
+                        value={row.insumoId}
+                        onValueChange={(v) => setReceta(receta.map((r, j) => (j === i ? { ...r, insumoId: v } : r)))}
+                      >
+                        <SelectTrigger className="flex-1">
+                          <SelectValue placeholder="Insumo" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {insumos?.map((x) => (
+                            <SelectItem key={x.id} value={String(x.id)}>{x.nombre}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Input
+                        type="number"
+                        step="0.001"
+                        min="0"
+                        className="w-24"
+                        placeholder="Cant."
+                        value={row.cantidad}
+                        onChange={(e) => setReceta(receta.map((r, j) => (j === i ? { ...r, cantidad: e.target.value } : r)))}
+                      />
+                      <span className="w-8 text-xs text-muted-foreground">{unidad}</span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => setReceta(receta.filter((_, j) => j !== i))}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           <DialogFooter>

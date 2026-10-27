@@ -389,6 +389,43 @@ export const appRouter = router({
   // ============================================
   // COMPRA ROUTER
   // ============================================
+  receta: router({
+    getByProducto: publicProcedure
+      .input(z.object({ empresaId: z.number(), productoId: z.number() }))
+      .query(async ({ input }) => db.getRecetaByProducto(input.productoId, input.empresaId)),
+
+    save: publicProcedure
+      .input(z.object({
+        empresaId: z.number(),
+        empleadoId: z.number(),
+        productoId: z.number(),
+        items: z.array(z.object({ insumoId: z.number(), cantidad: z.number().finite().positive() })),
+      }))
+      .mutation(async ({ input }) => {
+        const { empresaId, empleadoId, productoId } = input;
+        await exigirRolInventario(empleadoId, empresaId);
+        const producto = await db.getProductoById(productoId);
+        if (!producto || producto.empresaId !== empresaId) throw new TRPCError({ code: "NOT_FOUND", message: "Producto no encontrado" });
+        const items = input.items.map(it => ({ insumoId: it.insumoId, cantidad: Number(it.cantidad.toFixed(3)) }));
+        if (items.some(it => it.cantidad <= 0)) throw new TRPCError({ code: "BAD_REQUEST", message: "La cantidad debe ser al menos 0.001" });
+        if (new Set(items.map(it => it.insumoId)).size !== items.length) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Insumo repetido en la receta" });
+        }
+        for (const it of items) {
+          const insumo = await db.getInsumoById(it.insumoId, empresaId);
+          if (!insumo) throw new TRPCError({ code: "NOT_FOUND", message: "Insumo no encontrado" });
+          if (!insumo.activo) throw new TRPCError({ code: "BAD_REQUEST", message: `El insumo ${insumo.nombre} está desactivado` });
+        }
+        await db.runInTransaction(async tx => {
+          await db.deleteRecetaProducto(tx, productoId, empresaId);
+          if (items.length) {
+            await db.insertRecetaItems(tx, items.map(it => ({ empresaId, productoId, insumoId: it.insumoId, cantidad: it.cantidad.toFixed(3) })));
+          }
+        });
+        return { success: true };
+      }),
+  }),
+
   compra: router({
     create: publicProcedure
       .input(z.object({

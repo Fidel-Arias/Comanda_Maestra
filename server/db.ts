@@ -19,7 +19,7 @@ import {
   comprobantes, InsertComprobante, Comprobante,
   comprobanteItems, InsertComprobanteItem, ComprobanteItem,
   insumos, InsertInsumo, movimientosInventario,
-  compras, compraItems
+  compras, compraItems, recetas
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -1847,4 +1847,35 @@ export async function getGastoRows(empresaId: number, desde: string, hasta: stri
     .innerJoin(compras, eq(compras.id, compraItems.compraId))
     .innerJoin(insumos, eq(insumos.id, compraItems.insumoId))
     .where(and(eq(compras.empresaId, empresaId), gte(compras.fecha, desde), lte(compras.fecha, hasta)));
+}
+
+/** Receta de un plato con nombre/unidad del insumo (solo de la empresa). */
+export async function getRecetaByProducto(productoId: number, empresaId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({ insumoId: recetas.insumoId, nombre: insumos.nombre, unidad: insumos.unidad, cantidad: recetas.cantidad })
+    .from(recetas)
+    .innerJoin(insumos, eq(insumos.id, recetas.insumoId))
+    .where(and(eq(recetas.productoId, productoId), eq(recetas.empresaId, empresaId)))
+    .orderBy(asc(insumos.nombre));
+}
+
+/** Lo usa el descuento de stock por pedido (Task 10). */
+export async function getRecetasByProductos(productoIds: number[], empresaId: number): Promise<{ productoId: number; insumoId: number; cantidad: string }[]> {
+  if (productoIds.length === 0) return [];
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({ productoId: recetas.productoId, insumoId: recetas.insumoId, cantidad: recetas.cantidad })
+    .from(recetas)
+    .where(and(inArray(recetas.productoId, productoIds), eq(recetas.empresaId, empresaId)));
+}
+
+export async function deleteRecetaProducto(tx: TxArg, productoId: number, empresaId: number) {
+  await tx.delete(recetas).where(and(eq(recetas.productoId, productoId), eq(recetas.empresaId, empresaId)));
+}
+
+export async function insertRecetaItems(tx: TxArg, rows: (typeof recetas.$inferInsert)[]) {
+  await tx.insert(recetas).values(rows);
 }
