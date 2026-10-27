@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo } from "react";
 import { useLocation, useParams } from "wouter";
 import { trpc } from "@/lib/trpc";
+import { TRPCClientError } from "@trpc/client";
+import { useRealtime } from "@/hooks/useRealtime";
 import { usePOS } from "@/features/auth/contexts/POSContext";
 import { Button } from "@/components/ui/forms/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/display/card";
@@ -88,6 +90,30 @@ export default function TomaPedido() {
     { enabled: !!empresa?.id }
   );
 
+  // Porciones que alcanzan segun el stock de insumos (null = plato sin receta). El servidor es la autoridad.
+  const utils = trpc.useUtils();
+  const { data: disponibilidad } = trpc.insumo.disponibilidadPorPlato.useQuery(
+    { empresaId: empresa?.id || 0 },
+    { enabled: !!empresa?.id }
+  );
+  const porciones = useMemo(
+    () => new Map((disponibilidad ?? []).map(d => [d.productoId, d.porcionesDisponibles])),
+    [disponibilidad]
+  );
+  const refrescarDisponibilidad = () => utils.insumo.disponibilidadPorPlato.invalidate();
+  useRealtime(empresa?.id, (e) => {
+    if (e.type === "insumo_stock" || e.type === "insumo_agotado") refrescarDisponibilidad();
+  });
+  /** Las porciones de items aun no enviados todavia no estan descontadas en el servidor. */
+  const puedeSumar = (productoId: number) => {
+    const p = porciones.get(productoId);
+    if (p == null) return true;
+    const pendientes = items.filter(i => !i.id && i.productoId === productoId).reduce((a, i) => a + i.cantidad, 0);
+    return pendientes < p;
+  };
+  const esErrorStock = (error: unknown): error is TRPCClientError<any> =>
+    error instanceof TRPCClientError && error.data?.code === "PRECONDITION_FAILED";
+
   const { data: pedidoActivo, refetch: refetchPedido } = trpc.pedido.getByMesa.useQuery(
     { mesaId },
     { enabled: mesaId > 0 }
@@ -146,21 +172,16 @@ export default function TomaPedido() {
   }, [productos, searchTerm, selectedCategoria]);
 
   // Calcular totales (los precios YA INCLUYEN IGV)
-  const { subtotal, impuesto, total } = useMemo(() => {
-    const totalConIgv = items.reduce((acc, item) => acc + item.subtotal, 0);
+  const calcularTotales = (lista: ItemPedido[]) => {
+    const totalConIgv = lista.reduce((acc, item) => acc + item.subtotal, 0);
     const igvPorcentaje = parseFloat(empresa?.impuestoPorcentaje || "10.50");
     const factorIgv = 1 + (igvPorcentaje / 100); // 1.105 para 10.5%
 
     // Desglosar: extraer el IGV del total
     const subtotalSinIgv = totalConIgv / factorIgv;
-    const igv = totalConIgv - subtotalSinIgv;
-
-    return {
-      subtotal: subtotalSinIgv,
-      impuesto: igv,
-      total: totalConIgv,
-    };
-  }, [items, empresa]);
+    return { subtotal: subtotalSinIgv, impuesto: totalConIgv - subtotalSinIgv, total: totalConIgv };
+  };
+  const { subtotal, impuesto, total } = useMemo(() => calcularTotales(items), [items, empresa]);
 
   const itemsGrouped = useMemo(() => {
     const groups: Record<number, { name: string, items: (ItemPedido & { originalIndex: number })[] }> = {};
@@ -194,8 +215,13 @@ export default function TomaPedido() {
       toast.error("Producto agotado");
       return;
     }
+    if (!puedeSumar(producto.id)) {
+      toast.error("No hay insumos para más porciones");
+      return;
+    }
 
-    const existingIndex = items.findIndex(i => i.productoId === producto.id);
+    // Solo se acumula en items aun no enviados (los enviados se modifican con +/- del carrito).
+    const existingIndex = items.findIndex(i => i.productoId === producto.id && !i.id);
 
     if (existingIndex >= 0) {
       // Incrementar cantidad
@@ -233,21 +259,27 @@ export default function TomaPedido() {
       newItems.splice(index, 1);
       setItems(newItems);
     } else {
-      item.cantidad = newCantidad;
-      item.subtotal = newCantidad * item.precioUnitario;
-      setItems(newItems);
-
+      if (delta > 0 && !puedeSumar(item.productoId)) {
+        toast.error("No hay insumos para más porciones");
+        return;
+      }
+      const newSubtotal = newCantidad * item.precioUnitario;
       if (item.id) {
         try {
           await updateItemMutation.mutateAsync({
             id: item.id,
             cantidad: newCantidad,
-            subtotal: item.subtotal.toFixed(2),
+            subtotal: newSubtotal.toFixed(2),
           });
         } catch (error) {
-          // Silent error or toast
+          if (esErrorStock(error)) {
+            toast.error(error.message);
+            refrescarDisponibilidad();
+          }
+          return;
         }
       }
+      setItems(prev => prev.map(p => (p === item ? { ...p, cantidad: newCantidad, subtotal: newSubtotal } : p)));
     }
   };
 
@@ -273,10 +305,15 @@ export default function TomaPedido() {
     }
 
     try {
-      // Guardar items nuevos
+      // Guardar items nuevos. Cada uno enviado recibe su id al instante (un reintento no reenvia los ya guardados).
+      // Un item sin stock no frena a los demas: se acumula y queda en el carrito sin enviar.
+      const guardados: ItemPedido[] = items.filter(i => i.id);
+      const fallidos: string[] = [];
+      let otroError = false;
       for (const item of items) {
-        if (!item.id) {
-          await addItemMutation.mutateAsync({
+        if (item.id) continue;
+        try {
+          const { itemId } = await addItemMutation.mutateAsync({
             pedidoId,
             productoId: item.productoId,
             cantidad: item.cantidad,
@@ -284,16 +321,33 @@ export default function TomaPedido() {
             subtotal: item.subtotal.toFixed(2),
             notas: item.notas,
           });
+          guardados.push(item);
+          setItems(prev => prev.map(p => (p === item ? { ...p, id: itemId } : p)));
+        } catch (error) {
+          if (!esErrorStock(error)) { otroError = true; break; }
+          fallidos.push(`${item.nombre}: ${error.message}`);
         }
       }
 
-      // Actualizar totales
-      await updateTotalesMutation.mutateAsync({
-        id: pedidoId,
-        subtotal: subtotal.toFixed(2),
-        impuesto: impuesto.toFixed(2),
-        total: total.toFixed(2),
-      });
+      // Totales de TODO lo guardado, aunque algo haya fallado (Caja cobra desde pedido.total)
+      if (guardados.length > 0) {
+        const t = calcularTotales(guardados);
+        await updateTotalesMutation.mutateAsync({
+          id: pedidoId,
+          subtotal: t.subtotal.toFixed(2),
+          impuesto: t.impuesto.toFixed(2),
+          total: t.total.toFixed(2),
+        });
+      }
+      if (otroError) {
+        toast.error("Error al enviar el pedido");
+        return;
+      }
+      if (fallidos.length > 0) {
+        toast.error(`No se pudo enviar: ${fallidos.join("; ")}. Los demás items se guardaron.`);
+        refrescarDisponibilidad();
+        return;
+      }
 
       // Cambiar estado
       if (!isCajeroReal) {
@@ -312,7 +366,7 @@ export default function TomaPedido() {
         toast.success("Pedido actualizado");
         navigate("/cajero");
       }
-    } catch (error) {
+    } catch {
       toast.error("Error al enviar el pedido");
     }
   };
@@ -413,8 +467,12 @@ export default function TomaPedido() {
             <ScrollArea className="h-[calc(100vh-320px)] lg:h-[calc(100vh-250px)]">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {productosFiltrados.map((producto) => {
-                  const stockStatus = getStockStatus(producto.stock, producto.stockMinimo);
-                  const isAgotado = (producto.stock || 0) <= 0;
+                  const quedan = porciones.get(producto.id);
+                  const stockStatus =
+                    quedan === 0 ? { label: "Agotado", color: "text-red-400 bg-red-500/20" }
+                    : quedan != null && quedan <= 5 ? { label: `Quedan ${quedan}`, color: "text-amber-400 bg-amber-500/20" }
+                    : getStockStatus(producto.stock, producto.stockMinimo);
+                  const isAgotado = (producto.stock || 0) <= 0 || quedan === 0;
 
                   return (
                     <button

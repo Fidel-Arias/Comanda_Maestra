@@ -4,8 +4,18 @@ import { format } from "date-fns";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
+import { validarMesaEnZona } from "@shared/zonas";
 import * as db from "./db";
+import { publish, throttle } from "./lib/events";
+import {
+  aplicarMovimiento, armarKardex, descontarInsumosItem, exigirRolInventario, porcionesDisponibles,
+  reponerInsumosItems, StockInsuficienteError, type InsumoTocado, type MovimientoInput, type Tx,
+} from "./lib/inventario";
+import { agregarGastos, centsToStr, subtotalCents } from "./lib/compras";
 import * as nubefact from "./lib/nubefact";
+import { normalizarDocumento } from "./lib/documento";
+import { toPublicEmpresa } from "./lib/empresa";
 
 /**
  * Mapeo de tipos de comprobante para NubeFact JSON API
@@ -18,6 +28,103 @@ const TIPO_NUBEFACT = {
   NOTA_DEBITO: 4,
   TICKET: 0, // No enviado a NubeFact real
 };
+
+async function requireZona(id: number, empresaId: number) {
+  const zona = await db.getZonaById(id);
+  if (!zona || zona.empresaId !== empresaId) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Zona no encontrada" });
+  }
+  return zona;
+}
+
+async function assertMesaEnZona(
+  empresaId: number,
+  zonaId: number,
+  nueva: { id?: number; sillas: number }
+) {
+  const zona = await requireZona(zonaId, empresaId);
+  if (!zona.activa) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "La zona está inactiva" });
+  }
+  const mesasZona = await db.getMesasByZona(zonaId, empresaId);
+  const error = validarMesaEnZona(zona, mesasZona, nueva);
+  if (error) throw new TRPCError({ code: "BAD_REQUEST", message: error });
+}
+
+const fechaYMD = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const unidadInsumo = z.enum(["UND", "KG", "G", "L", "ML"]);
+
+async function assertInsumoSinDuplicado(empresaId: number, codigo: string | undefined, codigoBarras: string | null | undefined, excluirId?: number) {
+  const dup = await db.findInsumoDuplicado(empresaId, codigo, codigoBarras, excluirId);
+  if (dup) {
+    throw new TRPCError({ code: "CONFLICT", message: "Ya existe un insumo con ese código o código de barras" });
+  }
+}
+
+/** Valida rol, aplica el movimiento en una transaccion y publica insumo_stock tras el commit. */
+async function moverInsumo(
+  empresaId: number,
+  empleadoId: number,
+  m: Omit<MovimientoInput, "empresaId" | "empleadoId">,
+) {
+  await exigirRolInventario(empleadoId, empresaId);
+  const insumo = await db.getInsumoById(m.insumoId, empresaId);
+  if (!insumo) throw new TRPCError({ code: "NOT_FOUND", message: "Insumo no encontrado" });
+  if (!insumo.activo) throw new TRPCError({ code: "BAD_REQUEST", message: "El insumo está desactivado" });
+  const r = await db.runInTransaction(tx => aplicarMovimiento(tx, { ...m, empresaId, empleadoId }));
+  try {
+    publish(empresaId, { type: "insumo_stock", insumoId: m.insumoId, stock: r.saldoDespues, bajo: r.bajo });
+    if (r.agotado) publish(empresaId, { type: "insumo_agotado", insumoId: m.insumoId, nombre: r.nombre });
+  } catch (err) {
+    console.error("[insumo] publish failed:", err);
+  }
+  return { success: true, saldo: r.saldoDespues, bajo: r.bajo, agotado: r.agotado };
+}
+
+/** Publica insumo_stock (ultimo saldo por insumo) e insumo_agotado. Nunca hace fallar la mutacion. */
+async function avisarInsumos(
+  empresaId: number,
+  tocados: InsumoTocado[],
+  agotados: { insumoId: number; nombre: string }[],
+  mesaNumero?: () => Promise<number | undefined>,
+) {
+  try {
+    for (const t of Array.from(new Map(tocados.map(t => [t.insumoId, t])).values())) {
+      publish(empresaId, { type: "insumo_stock", insumoId: t.insumoId, stock: t.stock, bajo: t.bajo });
+    }
+    if (agotados.length === 0) return;
+    const numero = await mesaNumero?.();
+    for (const a of agotados) {
+      publish(empresaId, { type: "insumo_agotado", insumoId: a.insumoId, nombre: a.nombre, mesaNumero: numero });
+    }
+  } catch (err) {
+    console.error("[inventario] publish failed:", err);
+  }
+}
+
+/** Corre `fn` en una transaccion; si falta stock, tras el rollback avisa insumo_agotado y responde PRECONDITION_FAILED. */
+async function conStock<T>(empresaId: number, mesaNumero: () => Promise<number | undefined>, fn: (tx: Tx) => Promise<T>): Promise<T> {
+  try {
+    return await db.runInTransaction(fn);
+  } catch (err) {
+    if (!(err instanceof StockInsuficienteError)) throw err;
+    await avisarInsumos(empresaId, [], [err], mesaNumero);
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: err.message });
+  }
+}
+
+async function exigirPedidoNoCancelado(tx: Tx, pedidoId: number) {
+  const pedido = await db.getPedidoById(pedidoId, tx);
+  if (pedido?.orderStatus === "CANCELADO") {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "El pedido está cancelado" });
+  }
+}
+
+/** Repone el stock de los items que se eliminan/anulan (los ya CANCELADO no se reponen). */
+function reponerItems(tx: Tx, empresaId: number, items: { id: number; productoId: number; estado: string }[]) {
+  const activos = items.filter(i => i.estado !== "CANCELADO").map(i => ({ itemId: i.id, productoId: i.productoId }));
+  return reponerInsumosItems(tx, empresaId, activos);
+}
 
 export const appRouter = router({
   system: systemRouter,
@@ -36,13 +143,40 @@ export const appRouter = router({
   // ============================================
   empresa: router({
     list: publicProcedure.query(async () => {
-      return db.getEmpresas();
+      return (await db.getEmpresas()).map(toPublicEmpresa);
     }),
 
     getById: publicProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input }) => {
-        return db.getEmpresaById(input.id);
+        const e = await db.getEmpresaById(input.id);
+        return e ? toPublicEmpresa(e) : null;
+      }),
+  }),
+
+  // ============================================
+  // CLIENTE ROUTER (búsqueda con caché en BD)
+  // ============================================
+  cliente: router({
+    buscarPorDocumento: publicProcedure
+      .input(z.object({ empresaId: z.number(), numero: z.string() }))
+      .mutation(async ({ input }) => {
+        const { tipo, numero } = normalizarDocumento(input.numero);
+
+        const existente = await db.getClienteByDocumento(input.empresaId, numero);
+        if (existente) return { cliente: existente, origen: "BD" as const };
+
+        const empresa = await db.getEmpresaById(input.empresaId);
+        const entidad = await nubefact.consultarEntidad(numero, empresa?.apisNetPeToken ?? undefined);
+
+        const cliente = await db.createCliente({
+          empresaId: input.empresaId,
+          nombre: entidad.razon_social,
+          ...(tipo === "RUC" ? { ruc: numero } : { dni: numero }),
+          direccion: entidad.direccion ?? null,
+          tipoCliente: tipo === "RUC" ? "EMPRESA" : "PERSONA",
+        });
+        return { cliente, origen: "API" as const };
       }),
   }),
 
@@ -117,13 +251,21 @@ export const appRouter = router({
       .input(z.object({
         empresaId: z.number(),
         numero: z.number().min(1),
-        capacidad: z.number().min(1).max(20),
+        capacidad: z.number().min(1).max(20).optional(),
+        zonaId: z.number().nullable().optional(),
+        sillas: z.number().int().min(1).max(20).optional(),
       }))
       .mutation(async ({ input }) => {
+        const sillas = input.sillas ?? input.capacidad ?? 4;
+        if (input.zonaId) {
+          await assertMesaEnZona(input.empresaId, input.zonaId, { sillas });
+        }
         const mesaId = await db.createMesa({
           empresaId: input.empresaId,
           numero: input.numero,
-          capacidad: input.capacidad,
+          zonaId: input.zonaId ?? null,
+          sillas,
+          capacidad: sillas,
         });
         return { success: true, mesaId };
       }),
@@ -133,10 +275,27 @@ export const appRouter = router({
         id: z.number(),
         numero: z.number().min(1).optional(),
         capacidad: z.number().min(1).max(20).optional(),
+        zonaId: z.number().nullable().optional(),
+        sillas: z.number().int().min(1).max(20).optional(),
       }))
       .mutation(async ({ input }) => {
-        const { id, ...data } = input;
-        await db.updateMesa(id, data);
+        const { id, capacidad, ...data } = input;
+        const sillas = input.sillas ?? capacidad;
+        const patch: Record<string, unknown> = { ...data };
+        if (sillas !== undefined) {
+          patch.sillas = sillas;
+          patch.capacidad = sillas;
+        }
+        const touchesZona = input.zonaId !== undefined || sillas !== undefined;
+        if (touchesZona) {
+          const actual = await db.getMesaById(id);
+          if (!actual) throw new TRPCError({ code: "NOT_FOUND", message: "Mesa no encontrada" });
+          const zonaId = input.zonaId !== undefined ? input.zonaId : actual.zonaId;
+          if (zonaId) {
+            await assertMesaEnZona(actual.empresaId, zonaId, { id, sillas: sillas ?? actual.sillas });
+          }
+        }
+        await db.updateMesa(id, patch);
         return { success: true };
       }),
 
@@ -144,6 +303,326 @@ export const appRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await db.deleteMesa(input.id);
+        return { success: true };
+      }),
+  }),
+
+  // ============================================
+  // INSUMO ROUTER
+  // ============================================
+  insumo: router({
+    listByEmpresa: publicProcedure
+      .input(z.object({ empresaId: z.number() }))
+      .query(async ({ input }) => db.getInsumosByEmpresa(input.empresaId)),
+
+    disponibilidadPorPlato: publicProcedure
+      .input(z.object({ empresaId: z.number() }))
+      .query(async ({ input }): Promise<{ productoId: number; porcionesDisponibles: number | null }[]> => {
+        const [productos, insumos] = await Promise.all([
+          db.getProductosByEmpresa(input.empresaId),
+          db.getInsumosByEmpresa(input.empresaId), // solo activos: los inactivos cuentan como stock 0
+        ]);
+        const recetas = await db.getRecetasByProductos(productos.map(p => p.id), input.empresaId);
+        const stocks = new Map(insumos.map(i => [i.id, Number(i.stock)]));
+        return productos.map(p => ({
+          productoId: p.id,
+          porcionesDisponibles: porcionesDisponibles(
+            recetas.filter(r => r.productoId === p.id).map(r => ({ insumoId: r.insumoId, cantidad: Number(r.cantidad) })),
+            stocks,
+          ),
+        }));
+      }),
+
+    buscarPorCodigo: publicProcedure
+      .input(z.object({ empresaId: z.number(), codigo: z.string().trim().min(1) }))
+      .query(async ({ input }) => (await db.buscarInsumoPorCodigo(input.empresaId, input.codigo)) ?? null),
+
+    create: publicProcedure
+      .input(z.object({
+        empresaId: z.number(),
+        nombre: z.string().trim().min(1).max(255),
+        codigo: z.string().trim().min(1).max(40),
+        codigoBarras: z.string().trim().max(64).optional(),
+        unidad: unidadInsumo,
+        stockMinimo: z.number().min(0),
+        empleadoId: z.number(),
+      }))
+      .mutation(async ({ input }) => {
+        await exigirRolInventario(input.empleadoId, input.empresaId);
+        const { empleadoId: _e, stockMinimo, codigoBarras, ...rest } = input;
+        await assertInsumoSinDuplicado(input.empresaId, rest.codigo, codigoBarras || null);
+        const insumoId = await db.createInsumo({
+          ...rest,
+          codigoBarras: codigoBarras || null,
+          stockMinimo: stockMinimo.toFixed(3),
+        });
+        return { success: true, insumoId };
+      }),
+
+    update: publicProcedure
+      .input(z.object({
+        id: z.number(),
+        empresaId: z.number(),
+        nombre: z.string().trim().min(1).max(255).optional(),
+        codigo: z.string().trim().min(1).max(40).optional(),
+        codigoBarras: z.string().trim().max(64).nullable().optional(),
+        unidad: unidadInsumo.optional(),
+        stockMinimo: z.number().min(0).optional(),
+        empleadoId: z.number(),
+      }))
+      .mutation(async ({ input }) => {
+        await exigirRolInventario(input.empleadoId, input.empresaId);
+        const { id, empresaId, empleadoId: _e, stockMinimo, codigoBarras, ...rest } = input;
+        const actual = await db.getInsumoById(id, empresaId);
+        if (!actual) throw new TRPCError({ code: "NOT_FOUND", message: "Insumo no encontrado" });
+        const barras = codigoBarras === undefined ? undefined : codigoBarras || null;
+        await assertInsumoSinDuplicado(empresaId, rest.codigo, barras, id);
+        await db.updateInsumo(id, empresaId, {
+          ...rest,
+          ...(barras !== undefined ? { codigoBarras: barras } : {}),
+          ...(stockMinimo !== undefined ? { stockMinimo: stockMinimo.toFixed(3) } : {}),
+        });
+        return { success: true };
+      }),
+
+    delete: publicProcedure
+      .input(z.object({ id: z.number(), empresaId: z.number(), empleadoId: z.number() }))
+      .mutation(async ({ input }) => {
+        await exigirRolInventario(input.empleadoId, input.empresaId);
+        await db.desactivarInsumo(input.id, input.empresaId);
+        return { success: true };
+      }),
+
+    registrarIngreso: publicProcedure
+      .input(z.object({
+        empresaId: z.number(),
+        insumoId: z.number(),
+        cantidad: z.number().positive(),
+        costoUnitario: z.number().min(0).optional(),
+        empleadoId: z.number(),
+      }))
+      .mutation(async ({ input }) =>
+        moverInsumo(input.empresaId, input.empleadoId, {
+          insumoId: input.insumoId, tipo: "ENTRADA", motivo: "AJUSTE_MANUAL",
+          cantidad: input.cantidad, costoUnitario: input.costoUnitario,
+        })),
+
+    registrarMerma: publicProcedure
+      .input(z.object({
+        empresaId: z.number(),
+        insumoId: z.number(),
+        cantidad: z.number().positive(),
+        motivo: z.literal("MERMA"),
+        empleadoId: z.number(),
+      }))
+      .mutation(async ({ input }) =>
+        moverInsumo(input.empresaId, input.empleadoId, {
+          insumoId: input.insumoId, tipo: "SALIDA", motivo: "MERMA", cantidad: input.cantidad,
+        })),
+
+    ajustar: publicProcedure
+      .input(z.object({
+        empresaId: z.number(),
+        insumoId: z.number(),
+        nuevoSaldo: z.number().min(0),
+        empleadoId: z.number(),
+      }))
+      .mutation(async ({ input }) =>
+        moverInsumo(input.empresaId, input.empleadoId, {
+          insumoId: input.insumoId, tipo: "AJUSTE", motivo: "AJUSTE_MANUAL", cantidad: input.nuevoSaldo,
+        })),
+
+    listAgotados: publicProcedure
+      .input(z.object({ empresaId: z.number() }))
+      .query(async ({ input }) => {
+        const todos = await db.getInsumosByEmpresa(input.empresaId);
+        return todos
+          .filter(i => i.activo && Number(i.stock) <= 0)
+          .map(i => ({ id: i.id, nombre: i.nombre, stock: i.stock }));
+      }),
+
+    kardex: publicProcedure
+      .input(z.object({ empresaId: z.number(), insumoId: z.number(), desde: z.coerce.date(), hasta: z.coerce.date() }))
+      .query(async ({ input }) => {
+        const { saldoInicial, movs } = await db.getKardexRows(input.empresaId, input.insumoId, input.desde, input.hasta);
+        return armarKardex(saldoInicial, movs);
+      }),
+  }),
+
+  // ============================================
+  // RECETA ROUTER
+  // ============================================
+  receta: router({
+    getByProducto: publicProcedure
+      .input(z.object({ empresaId: z.number(), productoId: z.number() }))
+      .query(async ({ input }) => db.getRecetaByProducto(input.productoId, input.empresaId)),
+
+    save: publicProcedure
+      .input(z.object({
+        empresaId: z.number(),
+        empleadoId: z.number(),
+        productoId: z.number(),
+        items: z.array(z.object({ insumoId: z.number(), cantidad: z.number().finite().positive() })),
+      }))
+      .mutation(async ({ input }) => {
+        const { empresaId, empleadoId, productoId } = input;
+        await exigirRolInventario(empleadoId, empresaId);
+        const producto = await db.getProductoById(productoId);
+        if (!producto || producto.empresaId !== empresaId) throw new TRPCError({ code: "NOT_FOUND", message: "Producto no encontrado" });
+        const items = input.items.map(it => ({ insumoId: it.insumoId, cantidad: Number(it.cantidad.toFixed(3)) }));
+        if (items.some(it => it.cantidad <= 0)) throw new TRPCError({ code: "BAD_REQUEST", message: "La cantidad debe ser al menos 0.001" });
+        if (new Set(items.map(it => it.insumoId)).size !== items.length) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Insumo repetido en la receta" });
+        }
+        for (const it of items) {
+          const insumo = await db.getInsumoById(it.insumoId, empresaId);
+          if (!insumo) throw new TRPCError({ code: "NOT_FOUND", message: "Insumo no encontrado" });
+          if (!insumo.activo) throw new TRPCError({ code: "BAD_REQUEST", message: `El insumo ${insumo.nombre} está desactivado` });
+        }
+        await db.runInTransaction(async tx => {
+          await db.deleteRecetaProducto(tx, productoId, empresaId);
+          if (items.length) {
+            await db.insertRecetaItems(tx, items.map(it => ({ empresaId, productoId, insumoId: it.insumoId, cantidad: it.cantidad.toFixed(3) })));
+          }
+        });
+        return { success: true };
+      }),
+  }),
+
+  // ============================================
+  // COMPRA ROUTER
+  // ============================================
+  compra: router({
+    create: publicProcedure
+      .input(z.object({
+        empresaId: z.number(),
+        empleadoId: z.number(),
+        fecha: fechaYMD,
+        proveedor: z.string().trim().max(255).optional(),
+        comprobante: z.string().trim().max(50).optional(),
+        notas: z.string().trim().max(1000).optional(),
+        items: z.array(z.object({
+          insumoId: z.number(),
+          cantidad: z.number().positive(),
+          costoUnitario: z.number().min(0),
+        })).min(1),
+      }))
+      .mutation(async ({ input }) => {
+        const { empresaId, empleadoId } = input;
+        await exigirRolInventario(empleadoId, empresaId);
+        // Orden por insumoId evita deadlocks entre compras concurrentes; duplicados se rechazan (simple).
+        const items = [...input.items].sort((a, b) => a.insumoId - b.insumoId);
+        if (items.some((it, i) => i > 0 && it.insumoId === items[i - 1].insumoId)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Insumo repetido en la compra" });
+        }
+        for (const it of items) {
+          const insumo = await db.getInsumoById(it.insumoId, empresaId);
+          if (!insumo) throw new TRPCError({ code: "NOT_FOUND", message: "Insumo no encontrado" });
+          if (!insumo.activo) throw new TRPCError({ code: "BAD_REQUEST", message: `El insumo ${insumo.nombre} está desactivado` });
+        }
+        const cents = items.map(it => subtotalCents(it.cantidad, it.costoUnitario));
+        const total = centsToStr(cents.reduce((a, b) => a + b, 0));
+        const { compraId, resultados } = await db.runInTransaction(async tx => {
+          const compraId = await db.insertCompra(tx, {
+            empresaId, empleadoId, fecha: input.fecha, total,
+            proveedor: input.proveedor || null, comprobante: input.comprobante || null, notas: input.notas || null,
+          });
+          await db.insertCompraItems(tx, items.map((it, i) => ({
+            compraId, insumoId: it.insumoId, cantidad: it.cantidad.toFixed(3),
+            costoUnitario: it.costoUnitario.toFixed(4), subtotal: centsToStr(cents[i]),
+          })));
+          const resultados = [];
+          for (const it of items) {
+            resultados.push(await aplicarMovimiento(tx, {
+              empresaId, empleadoId, insumoId: it.insumoId, tipo: "ENTRADA", motivo: "COMPRA",
+              cantidad: it.cantidad, costoUnitario: it.costoUnitario, referenciaTipo: "COMPRA", referenciaId: compraId,
+            }));
+          }
+          return { compraId, resultados };
+        });
+        items.forEach((it, i) => {
+          try {
+            publish(empresaId, { type: "insumo_stock", insumoId: it.insumoId, stock: resultados[i].saldoDespues, bajo: resultados[i].bajo });
+          } catch (err) {
+            console.error("[compra] publish failed:", err);
+          }
+        });
+        return { success: true, compraId, total };
+      }),
+
+    listByEmpresa: publicProcedure
+      .input(z.object({ empresaId: z.number(), desde: fechaYMD, hasta: fechaYMD }))
+      .query(async ({ input }) => db.getComprasByEmpresa(input.empresaId, input.desde, input.hasta)),
+
+    getById: publicProcedure
+      .input(z.object({ id: z.number(), empresaId: z.number() }))
+      .query(async ({ input }) => {
+        const c = await db.getCompraById(input.id, input.empresaId);
+        if (!c) throw new TRPCError({ code: "NOT_FOUND", message: "Compra no encontrada" });
+        return c;
+      }),
+
+    gastos: publicProcedure
+      .input(z.object({ empresaId: z.number(), desde: fechaYMD, hasta: fechaYMD }))
+      .query(async ({ input }) => agregarGastos(await db.getGastoRows(input.empresaId, input.desde, input.hasta))),
+  }),
+
+  // ============================================
+  // ZONA ROUTER
+  // ============================================
+  zona: router({
+    listByEmpresa: publicProcedure
+      .input(z.object({ empresaId: z.number() }))
+      .query(async ({ input }) => db.getZonasByEmpresa(input.empresaId)),
+
+    create: publicProcedure
+      .input(z.object({
+        empresaId: z.number(),
+        nombre: z.string().min(1).max(100),
+        tipo: z.enum(["SALON", "TERRAZA", "BARRA"]),
+        maxMesas: z.number().int().min(1),
+        maxSillas: z.number().int().min(1),
+        activa: z.boolean().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const zonaId = await db.createZona(input);
+        return { success: true, zonaId };
+      }),
+
+    update: publicProcedure
+      .input(z.object({
+        id: z.number(),
+        empresaId: z.number(),
+        nombre: z.string().min(1).max(100).optional(),
+        tipo: z.enum(["SALON", "TERRAZA", "BARRA"]).optional(),
+        maxMesas: z.number().int().min(1).optional(),
+        maxSillas: z.number().int().min(1).optional(),
+        activa: z.boolean().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, empresaId, ...data } = input;
+        await requireZona(id, empresaId);
+        const mesasZona = await db.getMesasByZona(id, empresaId);
+        if (data.maxMesas !== undefined && data.maxMesas < mesasZona.length) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `La zona ya tiene ${mesasZona.length} mesas; no se puede bajar el máximo de mesas a ${data.maxMesas}` });
+        }
+        const usadas = mesasZona.reduce((s, m) => s + m.sillas, 0);
+        if (data.maxSillas !== undefined && data.maxSillas < usadas) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `La zona ya usa ${usadas} sillas; no se puede bajar el máximo de sillas a ${data.maxSillas}` });
+        }
+        await db.updateZona(id, empresaId, data);
+        return { success: true };
+      }),
+
+    delete: publicProcedure
+      .input(z.object({ id: z.number(), empresaId: z.number() }))
+      .mutation(async ({ input }) => {
+        await requireZona(input.id, input.empresaId);
+        const mesasZona = await db.getMesasByZona(input.id, input.empresaId);
+        if (mesasZona.length > 0) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "No se puede eliminar una zona que tiene mesas" });
+        }
+        await db.deleteZona(input.id, input.empresaId);
         return { success: true };
       }),
   }),
@@ -354,7 +833,15 @@ export const appRouter = router({
         estado: z.enum(["PENDIENTE", "PREPARANDO", "LISTO", "ENTREGADO", "CANCELADO"])
       }))
       .mutation(async ({ input }) => {
-        await db.updatePedidoEstado(input.id, input.estado);
+        if (input.estado !== "CANCELADO") {
+          await db.updatePedidoEstado(input.id, input.estado);
+          return { success: true };
+        }
+        const r = await db.runInTransaction(async tx => {
+          const p = await db.cancelarPedido(tx, input.id);
+          return p && { empresaId: p.empresaId, tocados: await reponerItems(tx, p.empresaId, p.items) };
+        });
+        if (r) await avisarInsumos(r.empresaId, r.tocados, []);
         return { success: true };
       }),
 
@@ -373,7 +860,11 @@ export const appRouter = router({
     delete: publicProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
-        await db.deletePedido(input.id);
+        const r = await db.runInTransaction(async tx => {
+          const p = await db.deletePedido(tx, input.id);
+          return p && { empresaId: p.empresaId, tocados: await reponerItems(tx, p.empresaId, p.items) };
+        });
+        if (r) await avisarInsumos(r.empresaId, r.tocados, []);
         return { success: true };
       }),
   }),
@@ -398,17 +889,50 @@ export const appRouter = router({
         notas: z.string().optional(),
       }))
       .mutation(async ({ input }) => {
-        const itemId = await db.addItemPedido({
-          pedidoId: input.pedidoId,
-          productoId: input.productoId,
-          cantidad: input.cantidad,
-          precioUnitario: input.precioUnitario,
-          subtotal: input.subtotal,
-          notas: input.notas,
+        const pedido = await db.getPedidoById(input.pedidoId);
+        if (!pedido) throw new TRPCError({ code: "NOT_FOUND", message: "Pedido no encontrado" });
+        const mesaNumero = async () => (await db.getMesaById(pedido.mesaId))?.numero;
+
+        // Item + descuento de insumos en una sola transaccion: si falta stock no se crea el item.
+        const { itemId, tocados } = await conStock(pedido.empresaId, mesaNumero, async tx => {
+          await exigirPedidoNoCancelado(tx, input.pedidoId);
+          const itemId = await db.addItemPedido(tx, {
+            pedidoId: input.pedidoId,
+            productoId: input.productoId,
+            cantidad: input.cantidad,
+            precioUnitario: input.precioUnitario,
+            subtotal: input.subtotal,
+            notas: input.notas,
+          });
+          const tocados = await descontarInsumosItem(tx, {
+            empresaId: pedido.empresaId, itemId, productoId: input.productoId, cantidad: input.cantidad, empleadoId: pedido.mozoId,
+          });
+          return { itemId, tocados };
         });
 
-        // Actualizar stock del producto
-        await db.updateProductoStock(input.productoId, input.cantidad);
+        // Actualizar stock del producto (legado). Ya hubo commit: si falla, solo se registra (un error aqui
+        // haria reintentar al cliente y descontar dos veces).
+        try {
+          await db.updateProductoStock(input.productoId, input.cantidad);
+        } catch (err) {
+          console.error("[itemPedido.add] updateProductoStock failed:", err);
+        }
+
+        await avisarInsumos(pedido.empresaId, tocados, tocados.filter(t => t.agotado), mesaNumero);
+
+        // Notificar a cocina/bar (nunca debe hacer fallar la mutación). Agrupado por (pedido, area)
+        // para que un pedido de N items no suene N veces.
+        try {
+          const producto = await db.getProductoById(input.productoId);
+          const categoria = producto ? await db.getCategoriaById(producto.categoriaId) : undefined;
+          if (categoria) {
+            const area = categoria.area;
+            throttle(`${input.pedidoId}:${area}`, () =>
+              publish(pedido.empresaId, { type: "comanda_nueva", area, pedidoId: input.pedidoId }));
+          }
+        } catch (err) {
+          console.error("[itemPedido.add] publish failed:", err);
+        }
 
         return { success: true, itemId };
       }),
@@ -420,14 +944,34 @@ export const appRouter = router({
         subtotal: z.string(),
       }))
       .mutation(async ({ input }) => {
-        await db.updateItemCantidad(input.id, input.cantidad, input.subtotal);
+        const ctx = await db.getItemContext(input.id);
+        if (!ctx) throw new TRPCError({ code: "NOT_FOUND", message: "Item no encontrado" });
+        // Solo se mueve la diferencia: sube -> descuento (con bloqueo), baja -> reposicion.
+        const tocados = await conStock(ctx.empresaId, async () => ctx.mesaNumero, async tx => {
+          const item = await db.getItemParaActualizar(tx, input.id);
+          if (!item) throw new TRPCError({ code: "NOT_FOUND", message: "Item no encontrado" });
+          await db.updateItemCantidad(tx, input.id, input.cantidad, input.subtotal);
+          const diff = input.cantidad - item.cantidad;
+          if (item.estado === "CANCELADO" || diff === 0) return [];
+          if (diff > 0) await exigirPedidoNoCancelado(tx, item.pedidoId);
+          const ref = { itemId: item.id, productoId: item.productoId };
+          return diff > 0
+            ? descontarInsumosItem(tx, { ...ref, empresaId: ctx.empresaId, cantidad: diff, empleadoId: ctx.mozoId })
+            : reponerInsumosItems(tx, ctx.empresaId, [{ ...ref, cantidad: -diff }]);
+        });
+        await avisarInsumos(ctx.empresaId, tocados, tocados.filter(t => t.agotado), async () => ctx.mesaNumero);
         return { success: true };
       }),
 
     delete: publicProcedure
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
-        await db.deleteItem(input.id);
+        const r = await db.runInTransaction(async tx => {
+          const item = await db.deleteItem(tx, input.id);
+          const pedido = item && (await db.getPedidoById(item.pedidoId, tx));
+          return pedido && { empresaId: pedido.empresaId, tocados: await reponerItems(tx, pedido.empresaId, [item]) };
+        });
+        if (r) await avisarInsumos(r.empresaId, r.tocados, []);
         return { success: true };
       }),
 
@@ -438,6 +982,17 @@ export const appRouter = router({
       }))
       .mutation(async ({ input }) => {
         await db.updateItemEstado(input.id, input.estado);
+
+        if (input.estado === "LISTO") {
+          try {
+            const ctx = await db.getItemContext(input.id);
+            if (ctx) {
+              publish(ctx.empresaId, { type: "item_listo", mozoId: ctx.mozoId, itemId: input.id, mesaNumero: ctx.mesaNumero });
+            }
+          } catch (err) {
+            console.error("[itemPedido.updateStatus] publish failed:", err);
+          }
+        }
         return { success: true };
       }),
 
@@ -823,9 +1378,14 @@ export const appRouter = router({
         logoUrl: z.string().nullable().optional(),
         impuestoPorcentaje: z.string().optional(),
         moneda: z.string().optional(),
+        // undefined = no tocar; "" o null = borrar
+        apisNetPeToken: z.string().max(255).nullable().optional(),
       }))
       .mutation(async ({ input }) => {
         const { id, ...data } = input;
+        if (data.apisNetPeToken !== undefined) {
+          data.apisNetPeToken = data.apisNetPeToken?.trim() || null;
+        }
         await db.updateEmpresa(id, data);
         return { success: true };
       }),
@@ -1161,18 +1721,6 @@ export const appRouter = router({
         } catch (err: any) {
           console.error("NubeFact Anulacion Error:", err);
           throw new Error(`Error al anular: ${err.message || "Error desconocido"}`);
-        }
-      }),
-
-    consultarEntidad: publicProcedure
-      .input(z.object({
-        numero: z.string().min(8).max(11),
-      }))
-      .mutation(async ({ input }) => {
-        try {
-          return await nubefact.consultarEntidad(input.numero);
-        } catch (error: any) {
-          throw new Error(error.message);
         }
       }),
 

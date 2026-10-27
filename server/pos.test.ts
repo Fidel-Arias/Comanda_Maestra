@@ -1,6 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { appRouter } from "./routers";
 import type { TrpcContext } from "./_core/context";
+import * as db from "./db";
+import { publish } from "./lib/events";
 
 // Mock the database module
 vi.mock("./db", () => ({
@@ -38,6 +40,20 @@ vi.mock("./db", () => ({
   getPedidosActivos: vi.fn().mockResolvedValue([]),
   getVentasPorHora: vi.fn().mockResolvedValue([]),
   getVentasPorCategoria: vi.fn().mockResolvedValue([]),
+  addItemPedido: vi.fn().mockResolvedValue(77),
+  runInTransaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn({})),
+  getRecetasByProductos: vi.fn().mockResolvedValue([]),
+  updateProductoStock: vi.fn().mockResolvedValue(undefined),
+  getPedidoById: vi.fn().mockResolvedValue({ id: 9, empresaId: 1, mesaId: 1, mozoId: 1 }),
+  getProductoById: vi.fn().mockResolvedValue({ id: 1, categoriaId: 2 }),
+  getCategoriaById: vi.fn().mockResolvedValue({ id: 2, area: "BAR" }),
+  updateItemEstado: vi.fn().mockResolvedValue(undefined),
+  getItemContext: vi.fn().mockResolvedValue({ empresaId: 1, mozoId: 1, mesaNumero: 3 }),
+}));
+
+vi.mock("./lib/events", async importOriginal => ({
+  ...(await importOriginal<typeof import("./lib/events")>()),
+  publish: vi.fn(),
 }));
 
 function createPublicContext(): TrpcContext {
@@ -166,5 +182,38 @@ describe("POS System - Analytics", () => {
     
     expect(rendimiento).toBeDefined();
     expect(Array.isArray(rendimiento)).toBe(true);
+  });
+});
+
+describe("Realtime notifications", () => {
+  beforeEach(() => {
+    vi.mocked(publish).mockClear();
+  });
+
+  it("publishes item_listo when an item becomes LISTO", async () => {
+    const caller = appRouter.createCaller(createPublicContext());
+    await caller.itemPedido.updateStatus({ id: 5, estado: "LISTO" });
+    expect(publish).toHaveBeenCalledWith(1, { type: "item_listo", mozoId: 1, itemId: 5, mesaNumero: 3 });
+  });
+
+  it("does not publish for PREPARANDO", async () => {
+    const caller = appRouter.createCaller(createPublicContext());
+    await caller.itemPedido.updateStatus({ id: 5, estado: "PREPARANDO" });
+    expect(publish).not.toHaveBeenCalled();
+  });
+
+  it("publishes comanda_nueva with the category area on add", async () => {
+    const caller = appRouter.createCaller(createPublicContext());
+    await caller.itemPedido.add({
+      pedidoId: 9, productoId: 1, cantidad: 1, precioUnitario: "10.00", subtotal: "10.00",
+    });
+    expect(publish).toHaveBeenCalledWith(1, { type: "comanda_nueva", area: "BAR", pedidoId: 9 });
+  });
+
+  it("still succeeds when publishing context lookup fails", async () => {
+    vi.mocked(db.getItemContext).mockRejectedValueOnce(new Error("boom"));
+    const caller = appRouter.createCaller(createPublicContext());
+    await expect(caller.itemPedido.updateStatus({ id: 5, estado: "LISTO" })).resolves.toEqual({ success: true });
+    expect(publish).not.toHaveBeenCalled();
   });
 });

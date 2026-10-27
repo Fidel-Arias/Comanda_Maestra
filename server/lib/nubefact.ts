@@ -160,11 +160,12 @@ export interface NubeFactEntidad {
     departamento?: string;
 }
 
-// Token opcional para APIs.net.pe V2 (Mayor estabilidad)
-const APIS_NET_PE_TOKEN = process.env.APIS_NET_PE_TOKEN;
+const APIS_TIMEOUT_MS = 5000;
 
-export async function consultarEntidad(numero: string): Promise<NubeFactEntidad> {
+// Token opcional para APIs.net.pe V2 (Mayor estabilidad): el de la empresa o, si no hay, el de .env
+export async function consultarEntidad(numero: string, token?: string): Promise<NubeFactEntidad> {
     const esRuc = numero.length === 11;
+    const APIS_NET_PE_TOKEN = token || process.env.APIS_NET_PE_TOKEN;
 
     // MÉTODO 1: API V2 (Si existe token configurado - RECOMENDADO para producción)
     if (APIS_NET_PE_TOKEN) {
@@ -177,7 +178,8 @@ export async function consultarEntidad(numero: string): Promise<NubeFactEntidad>
                 headers: {
                     "Authorization": `Bearer ${APIS_NET_PE_TOKEN}`,
                     "Referer": "https://apis.net.pe/api-ruc",
-                }
+                },
+                signal: AbortSignal.timeout(APIS_TIMEOUT_MS),
             });
 
             if (response.ok) {
@@ -220,7 +222,7 @@ export async function consultarEntidad(numero: string): Promise<NubeFactEntidad>
         const url = `https://api.apis.net.pe/v1/${tipo}?numero=${numero}`;
 
         console.log(`Consultando API V1 (Pública): ${url}`);
-        const response = await fetch(url);
+        const response = await fetch(url, { signal: AbortSignal.timeout(APIS_TIMEOUT_MS) });
 
         if (response.ok) {
             const data = await response.json();

@@ -1,4 +1,4 @@
-import { eq, and, or, desc, asc, sql, gte, lte, inArray } from "drizzle-orm";
+import { eq, and, or, desc, asc, sql, gte, lte, lt, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import {
@@ -6,6 +6,7 @@ import {
   empresas, InsertEmpresa,
   empleados, InsertEmpleado,
   mesas, InsertMesa,
+  zonas, InsertZona,
   categorias, InsertCategoria,
   productos, InsertProducto,
   pedidos, InsertPedido,
@@ -16,7 +17,9 @@ import {
   cajas, InsertCaja,
   ventas, InsertVenta, Venta,
   comprobantes, InsertComprobante, Comprobante,
-  comprobanteItems, InsertComprobanteItem, ComprobanteItem
+  comprobanteItems, InsertComprobanteItem, ComprobanteItem,
+  insumos, InsertInsumo, movimientosInventario,
+  compras, compraItems, recetas
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -362,6 +365,44 @@ export async function updateMesa(id: number, data: Partial<InsertMesa>) {
   await db.update(mesas).set(data).where(eq(mesas.id, id));
 }
 
+export async function getZonasByEmpresa(empresaId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(zonas).where(eq(zonas.empresaId, empresaId)).orderBy(asc(zonas.nombre));
+}
+
+export async function getZonaById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.select().from(zonas).where(eq(zonas.id, id)).limit(1);
+  return result[0] || null;
+}
+
+export async function getMesasByZona(zonaId: number, empresaId: number): Promise<{ id: number; sillas: number }[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({ id: mesas.id, sillas: mesas.sillas }).from(mesas).where(and(eq(mesas.zonaId, zonaId), eq(mesas.empresaId, empresaId)));
+}
+
+export async function createZona(data: InsertZona) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(zonas).values(data).returning({ id: zonas.id });
+  return result[0].id;
+}
+
+export async function updateZona(id: number, empresaId: number, data: Partial<InsertZona>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(zonas).set(data).where(and(eq(zonas.id, id), eq(zonas.empresaId, empresaId)));
+}
+
+export async function deleteZona(id: number, empresaId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(zonas).where(and(eq(zonas.id, id), eq(zonas.empresaId, empresaId)));
+}
+
 export async function deleteMesa(id: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
@@ -492,10 +533,24 @@ export async function getPedidoActivo(mesaId: number) {
   return result[0];
 }
 
-export async function getPedidoById(id: number) {
-  const db = await getDb();
+/** Pasar `tx` cuando se llama dentro de una transaccion (el pool es pequeno: leer por el pool ahi puede colgarlo). */
+export async function getPedidoById(id: number, tx?: TxArg) {
+  const db = tx ?? (await getDb());
   if (!db) return undefined;
   const result = await db.select().from(pedidos).where(eq(pedidos.id, id)).limit(1);
+  return result[0];
+}
+
+export async function getItemContext(itemId: number): Promise<{ empresaId: number; mozoId: number; mesaNumero: number } | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db
+    .select({ empresaId: pedidos.empresaId, mozoId: pedidos.mozoId, mesaNumero: mesas.numero })
+    .from(itemsPedido)
+    .innerJoin(pedidos, eq(itemsPedido.pedidoId, pedidos.id))
+    .innerJoin(mesas, eq(pedidos.mesaId, mesas.id))
+    .where(eq(itemsPedido.id, itemId))
+    .limit(1);
   return result[0];
 }
 
@@ -643,23 +698,34 @@ export async function getPedidosListos(empresaId: number) {
 }
 
 
-export async function addItemPedido(data: InsertItemPedido) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  const result = await db.insert(itemsPedido).values(data).returning({ id: itemsPedido.id });
+export async function addItemPedido(tx: TxArg, data: InsertItemPedido) {
+  const result = await tx.insert(itemsPedido).values(data).returning({ id: itemsPedido.id });
   return result[0].id;
 }
 
-export async function updateItemCantidad(id: number, cantidad: number, subtotal: string) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  await db.update(itemsPedido).set({ cantidad, subtotal }).where(eq(itemsPedido.id, id));
+/** Bloquea la fila del item hasta el commit (serializa cambios de cantidad / borrado / anulacion). */
+export async function getItemParaActualizar(tx: TxArg, id: number) {
+  const r = await tx.select().from(itemsPedido).where(eq(itemsPedido.id, id)).for("update");
+  return r[0];
 }
 
-export async function deleteItem(id: number) {
-  const db = await getDb();
-  if (!db) throw new Error("Database not available");
-  await db.delete(itemsPedido).where(eq(itemsPedido.id, id));
+export async function updateItemCantidad(tx: TxArg, id: number, cantidad: number, subtotal: string) {
+  await tx.update(itemsPedido).set({ cantidad, subtotal }).where(eq(itemsPedido.id, id));
+}
+
+/** Devuelve el item borrado (undefined si ya no existia). */
+export async function deleteItem(tx: TxArg, id: number) {
+  const r = await tx.delete(itemsPedido).where(eq(itemsPedido.id, id)).returning();
+  return r[0];
+}
+
+/** Marca el pedido CANCELADO y devuelve sus items bloqueados (FOR UPDATE). */
+export async function cancelarPedido(tx: TxArg, id: number) {
+  const [pedido] = await tx.update(pedidos).set({ orderStatus: "CANCELADO" }).where(eq(pedidos.id, id))
+    .returning({ empresaId: pedidos.empresaId });
+  if (!pedido) return undefined;
+  const items = await tx.select().from(itemsPedido).where(eq(itemsPedido.pedidoId, id)).for("update");
+  return { empresaId: pedido.empresaId, items };
 }
 
 // ============================================
@@ -1631,25 +1697,222 @@ export async function updateItemsSubcuentas(updates: { itemId: number, subCuenta
   });
 }
 
-export async function deletePedido(id: number) {
+/** Borra el pedido (y libera la mesa) dentro de `tx`; devuelve los items borrados para reponer stock. */
+export async function deletePedido(tx: TxArg, id: number) {
+  const pedido = await getPedidoById(id, tx);
+  if (!pedido) return undefined;
+
+  // Delete itemsPedido first due to FK constraints
+  const items = await tx.delete(itemsPedido).where(eq(itemsPedido.pedidoId, id)).returning();
+  // Delete ventas if any
+  await tx.delete(ventas).where(eq(ventas.pedidoId, id));
+  // Delete pedido
+  await tx.delete(pedidos).where(eq(pedidos.id, id));
+  // Update mesa to DISPONIBLE
+  await tx.update(mesas)
+    .set({ tableStatus: "DISPONIBLE", mozoAsignadoId: null })
+    .where(eq(mesas.id, pedido.mesaId));
+  return { empresaId: pedido.empresaId, items };
+}
+
+
+// ============================================
+// INSUMOS / INVENTARIO
+// ============================================
+
+export async function runInTransaction<T>(fn: (tx: Parameters<Parameters<NonNullable<Awaited<ReturnType<typeof getDb>>>["transaction"]>[0]>[0]) => Promise<T>): Promise<T> {
+  const db = await getDb();
+  if (!db) throw new Error("Base de datos no disponible");
+  return db.transaction(fn);
+}
+
+export async function getInsumosByEmpresa(empresaId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(insumos).where(and(eq(insumos.empresaId, empresaId), eq(insumos.activo, true))).orderBy(asc(insumos.nombre));
+}
+
+export async function getInsumoById(id: number, empresaId: number, tx?: TxArg) {
+  const db = tx ?? (await getDb());
+  if (!db) return undefined;
+  const r = await db.select().from(insumos).where(and(eq(insumos.id, id), eq(insumos.empresaId, empresaId))).limit(1);
+  return r[0];
+}
+
+/** Busca un insumo activo por codigo de barras o codigo interno. */
+export async function buscarInsumoPorCodigo(empresaId: number, codigo: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const r = await db.select().from(insumos).where(and(
+    eq(insumos.empresaId, empresaId),
+    eq(insumos.activo, true),
+    or(eq(insumos.codigoBarras, codigo), eq(insumos.codigo, codigo)),
+  )).limit(1);
+  return r[0];
+}
+
+/** Insumo (activo o no, el indice unico no distingue) que ya usa el codigo o codigo de barras. */
+export async function findInsumoDuplicado(empresaId: number, codigo: string | undefined, codigoBarras: string | null | undefined, excluirId?: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const conds = [] as ReturnType<typeof eq>[];
+  if (codigo) conds.push(eq(insumos.codigo, codigo));
+  if (codigoBarras) conds.push(eq(insumos.codigoBarras, codigoBarras));
+  if (conds.length === 0) return undefined;
+  const r = await db.select().from(insumos).where(and(
+    eq(insumos.empresaId, empresaId),
+    or(...conds),
+    ...(excluirId !== undefined ? [sql`${insumos.id} <> ${excluirId}`] : []),
+  )).limit(1);
+  return r[0];
+}
+
+export async function createInsumo(data: InsertInsumo): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("Base de datos no disponible");
+  const [r] = await db.insert(insumos).values(data).returning({ id: insumos.id });
+  return r.id;
+}
+
+export async function updateInsumo(id: number, empresaId: number, data: Partial<InsertInsumo>) {
   const db = await getDb();
   if (!db) return;
+  await db.update(insumos).set(data).where(and(eq(insumos.id, id), eq(insumos.empresaId, empresaId)));
+}
 
-  const pedido = await getPedidoById(id);
-  // Using direct SQL might be safer if constraints are weird, but Drizzle should handle it
-  // Assuming pedido exists
-  if (!pedido) return;
+export async function desactivarInsumo(id: number, empresaId: number) {
+  await updateInsumo(id, empresaId, { activo: false });
+}
 
-  return await db.transaction(async (tx) => {
-    // Delete itemsPedido first due to FK constraints
-    await tx.delete(itemsPedido).where(eq(itemsPedido.pedidoId, id));
-    // Delete ventas if any
-    await tx.delete(ventas).where(eq(ventas.pedidoId, id));
-    // Delete pedido
-    await tx.delete(pedidos).where(eq(pedidos.id, id));
-    // Update mesa to DISPONIBLE
-    await tx.update(mesas)
-      .set({ tableStatus: "DISPONIBLE", mozoAsignadoId: null })
-      .where(eq(mesas.id, pedido.mesaId));
-  });
+/** Movimientos del rango y saldo previo (saldoDespues del ultimo movimiento anterior a `desde`, 0 si no hay). */
+export async function getKardexRows(empresaId: number, insumoId: number, desde: Date, hasta: Date) {
+  const db = await getDb();
+  if (!db) return { saldoInicial: 0, movs: [] };
+  const prev = await db.select({ saldo: movimientosInventario.saldoDespues }).from(movimientosInventario).where(and(
+    eq(movimientosInventario.empresaId, empresaId),
+    eq(movimientosInventario.insumoId, insumoId),
+    lt(movimientosInventario.createdAt, desde),
+  )).orderBy(desc(movimientosInventario.createdAt), desc(movimientosInventario.id)).limit(1);
+  const movs = await db.select().from(movimientosInventario).where(and(
+    eq(movimientosInventario.empresaId, empresaId),
+    eq(movimientosInventario.insumoId, insumoId),
+    gte(movimientosInventario.createdAt, desde),
+    lte(movimientosInventario.createdAt, hasta),
+  )).orderBy(asc(movimientosInventario.createdAt), asc(movimientosInventario.id));
+  return { saldoInicial: prev[0] ? Number(prev[0].saldo) : 0, movs };
+}
+
+// ============================================
+// COMPRAS
+// ============================================
+
+type TxArg = Parameters<Parameters<typeof runInTransaction>[0]>[0];
+
+export async function insertCompra(tx: TxArg, values: typeof compras.$inferInsert): Promise<number> {
+  const [row] = await tx.insert(compras).values(values).returning({ id: compras.id });
+  return row.id;
+}
+
+export async function insertCompraItems(tx: TxArg, rows: (typeof compraItems.$inferInsert)[]) {
+  await tx.insert(compraItems).values(rows);
+}
+
+/** `desde`/`hasta`: 'YYYY-MM-DD' (compras.fecha es date). */
+export async function getComprasByEmpresa(empresaId: number, desde: string, hasta: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(compras).where(and(
+    eq(compras.empresaId, empresaId), gte(compras.fecha, desde), lte(compras.fecha, hasta),
+  )).orderBy(desc(compras.fecha), desc(compras.id));
+}
+
+export async function getCompraById(id: number, empresaId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [compra] = await db.select().from(compras).where(and(eq(compras.id, id), eq(compras.empresaId, empresaId)));
+  if (!compra) return undefined;
+  const items = await db.select({
+    id: compraItems.id, insumoId: compraItems.insumoId, nombre: insumos.nombre, cantidad: compraItems.cantidad,
+    costoUnitario: compraItems.costoUnitario, subtotal: compraItems.subtotal,
+  }).from(compraItems).innerJoin(insumos, eq(insumos.id, compraItems.insumoId))
+    .where(eq(compraItems.compraId, id)).orderBy(asc(compraItems.id));
+  return { ...compra, items };
+}
+
+export async function getGastoRows(empresaId: number, desde: string, hasta: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    fecha: compras.fecha, insumoId: compraItems.insumoId, nombre: insumos.nombre, subtotal: compraItems.subtotal,
+  }).from(compraItems)
+    .innerJoin(compras, eq(compras.id, compraItems.compraId))
+    .innerJoin(insumos, eq(insumos.id, compraItems.insumoId))
+    .where(and(eq(compras.empresaId, empresaId), gte(compras.fecha, desde), lte(compras.fecha, hasta)));
+}
+
+/** Receta de un plato con nombre/unidad del insumo (solo de la empresa). */
+export async function getRecetaByProducto(productoId: number, empresaId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({ insumoId: recetas.insumoId, nombre: insumos.nombre, unidad: insumos.unidad, cantidad: recetas.cantidad })
+    .from(recetas)
+    .innerJoin(insumos, eq(insumos.id, recetas.insumoId))
+    .where(and(eq(recetas.productoId, productoId), eq(recetas.empresaId, empresaId)))
+    .orderBy(asc(insumos.nombre));
+}
+
+/**
+ * Suma `delta` al stock. Si delta < 0 el UPDATE es condicional (activo y stock >= -delta):
+ * undefined = no alcanzo el stock (o no existe). Atomico frente a pedidos concurrentes.
+ */
+export async function ajustarStockInsumo(tx: TxArg, empresaId: number, insumoId: number, delta: number) {
+  const n = Math.abs(delta).toFixed(3);
+  const where = [eq(insumos.id, insumoId), eq(insumos.empresaId, empresaId)];
+  if (delta < 0) where.push(eq(insumos.activo, true), gte(insumos.stock, n));
+  const [row] = await tx
+    .update(insumos)
+    .set({ stock: delta < 0 ? sql`${insumos.stock} - ${n}::numeric` : sql`${insumos.stock} + ${n}::numeric` })
+    .where(and(...where))
+    .returning({ stock: insumos.stock, stockMinimo: insumos.stockMinimo, nombre: insumos.nombre });
+  return row;
+}
+
+export async function insertMovimientoInventario(tx: TxArg, row: typeof movimientosInventario.$inferInsert) {
+  await tx.insert(movimientosInventario).values(row);
+}
+
+export async function getMovimientosItems(tx: TxArg, empresaId: number, itemIds: number[]) {
+  return tx
+    .select({
+      referenciaId: movimientosInventario.referenciaId,
+      insumoId: movimientosInventario.insumoId,
+      tipo: movimientosInventario.tipo,
+      cantidad: movimientosInventario.cantidad,
+    })
+    .from(movimientosInventario)
+    .where(and(
+      eq(movimientosInventario.empresaId, empresaId),
+      eq(movimientosInventario.referenciaTipo, "ITEM_PEDIDO"),
+      inArray(movimientosInventario.referenciaId, itemIds),
+    ));
+}
+
+/** Lo usa el descuento de stock por pedido (Task 10). */
+export async function getRecetasByProductos(productoIds: number[], empresaId: number, tx?: TxArg): Promise<{ productoId: number; insumoId: number; cantidad: string }[]> {
+  if (productoIds.length === 0) return [];
+  const db = tx ?? (await getDb());
+  if (!db) return [];
+  return db
+    .select({ productoId: recetas.productoId, insumoId: recetas.insumoId, cantidad: recetas.cantidad })
+    .from(recetas)
+    .where(and(inArray(recetas.productoId, productoIds), eq(recetas.empresaId, empresaId)));
+}
+
+export async function deleteRecetaProducto(tx: TxArg, productoId: number, empresaId: number) {
+  await tx.delete(recetas).where(and(eq(recetas.productoId, productoId), eq(recetas.empresaId, empresaId)));
+}
+
+export async function insertRecetaItems(tx: TxArg, rows: (typeof recetas.$inferInsert)[]) {
+  await tx.insert(recetas).values(rows);
 }

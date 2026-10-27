@@ -17,7 +17,7 @@ import { BottomNavigation } from "@/components/layout/BottomNavigation";
 import { useLocation } from "wouter";
 import {
   ArrowLeft, Building2, Save, Receipt,
-  Phone, Mail, MapPin, FileText, Percent, Coins
+  Phone, Mail, MapPin, FileText, Percent, Coins, KeyRound
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -38,9 +38,13 @@ export default function ConfiguracionEmpresa() {
     moneda: "PEN",
   });
 
+  const [apiKey, setApiKey] = useState("");
+  const puedeVerApiKey = !!empleado && ["DUENO", "ADMIN"].includes(empleado.rol);
+
   const updateEmpresa = trpc.configuracion.updateEmpresa.useMutation({
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       toast.success("Configuración guardada exitosamente");
+      setApiKey("");
       // Actualizar el contexto con los nuevos datos
       if (empresa) {
         setEmpresa({
@@ -54,6 +58,10 @@ export default function ConfiguracionEmpresa() {
           logoUrl: formData.logoUrl || null,
           impuestoPorcentaje: formData.impuestoPorcentaje,
           moneda: formData.moneda,
+          tieneApiKey:
+            variables.apisNetPeToken === undefined
+              ? empresa.tieneApiKey
+              : !!variables.apisNetPeToken,
         });
       }
     },
@@ -87,10 +95,17 @@ export default function ConfiguracionEmpresa() {
       await updateEmpresa.mutateAsync({
         id: empresa.id,
         ...formData,
+        // Campo vacío = no tocar la clave existente
+        ...(puedeVerApiKey && apiKey.trim() ? { apisNetPeToken: apiKey.trim() } : {}),
       });
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleQuitarApiKey = async () => {
+    if (!empresa) return;
+    await updateEmpresa.mutateAsync({ id: empresa.id, apisNetPeToken: null });
   };
 
   const handleChange = (field: string, value: string) => {
@@ -285,6 +300,53 @@ export default function ConfiguracionEmpresa() {
               </div>
             </CardContent>
           </Card>
+
+          {puedeVerApiKey && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base flex items-center gap-2">
+                  <KeyRound className="h-4 w-4" />
+                  Consulta DNI/RUC (apis.net.pe)
+                </CardTitle>
+                <CardDescription>
+                  Estado:{" "}
+                  <span className={empresa?.tieneApiKey ? "text-emerald-500 font-medium" : "font-medium"}>
+                    {empresa?.tieneApiKey ? "Configurada" : "No configurada"}
+                  </span>
+                  {" · "}
+                  <a
+                    href="https://apis.net.pe"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline"
+                  >
+                    Obtenga una gratis en apis.net.pe
+                  </a>
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <Input
+                  id="apiKey"
+                  type="password"
+                  autoComplete="new-password"
+                  value={apiKey}
+                  onChange={(e) => setApiKey(e.target.value)}
+                  placeholder="Pegue aquí su API key"
+                />
+                {empresa?.tieneApiKey && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleQuitarApiKey}
+                    disabled={updateEmpresa.isPending}
+                  >
+                    Quitar
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Logo (opcional) */}
           <Card>

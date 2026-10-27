@@ -1,4 +1,4 @@
-import { integer, pgEnum, pgTable, text, timestamp, varchar, decimal, boolean, serial, date, time } from "drizzle-orm/pg-core";
+import { integer, pgEnum, pgTable, text, timestamp, varchar, decimal, boolean, serial, date, time, uniqueIndex, index } from "drizzle-orm/pg-core";
 
 // ============================================
 // ENUMS para PostgreSQL
@@ -31,6 +31,8 @@ export const empresas = pgTable("empresas", {
   activa: boolean("activa").default(true),
   impuestoPorcentaje: decimal("impuesto_porcentaje", { precision: 5, scale: 2 }).default("10.50"),
   moneda: varchar("moneda", { length: 3 }).default("PEN"),
+  // API key de apis.net.pe (secreto: nunca enviar al cliente, ver toPublicEmpresa)
+  apisNetPeToken: varchar("apis_net_pe_token", { length: 255 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -61,11 +63,28 @@ export type InsertEmpleado = typeof empleados.$inferInsert;
 // TABLA: MESAS
 // ============================================
 
+export const tipoZonaEnum = pgEnum("tipo_zona", ["SALON", "TERRAZA", "BARRA"]);
+
+export const zonas = pgTable("zonas", {
+  id: serial("id").primaryKey(),
+  empresaId: integer("empresa_id").references(() => empresas.id).notNull(),
+  nombre: varchar("nombre", { length: 100 }).notNull(),
+  tipo: tipoZonaEnum("tipo").default("SALON").notNull(),
+  maxMesas: integer("max_mesas").notNull(),
+  maxSillas: integer("max_sillas").notNull(),
+  activa: boolean("activa").default(true).notNull(),
+});
+
+export type Zona = typeof zonas.$inferSelect;
+export type InsertZona = typeof zonas.$inferInsert;
+
 export const mesas = pgTable("mesas", {
   id: serial("id").primaryKey(),
   empresaId: integer("empresa_id").references(() => empresas.id).notNull(),
   numero: integer("numero").notNull(),
   capacidad: integer("capacidad").default(4).notNull(),
+  zonaId: integer("zona_id").references(() => zonas.id),
+  sillas: integer("sillas").default(4).notNull(),
   tableStatus: tableStatusEnum("table_status").default("DISPONIBLE"),
   mozoAsignadoId: integer("mozo_asignado_id").references(() => empleados.id),
   personas: integer("personas").default(0),
@@ -177,7 +196,10 @@ export const clientes = pgTable("clientes", {
   direccion: text("direccion"),
   tipoCliente: varchar("tipo_cliente", { length: 50 }).default("CONSUMIDOR_FINAL"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (t) => [
+  uniqueIndex("clientes_empresa_dni").on(t.empresaId, t.dni),
+  uniqueIndex("clientes_empresa_ruc").on(t.empresaId, t.ruc),
+]);
 
 export type Cliente = typeof clientes.$inferSelect;
 export type InsertCliente = typeof clientes.$inferInsert;
@@ -341,3 +363,94 @@ export const users = pgTable("users", {
 
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
+
+// ============================================
+// INVENTARIO
+// ============================================
+
+export const unidadInsumoEnum = pgEnum("unidad_insumo", ["UND", "KG", "G", "L", "ML"]);
+export const movimientoTipoEnum = pgEnum("movimiento_tipo", ["ENTRADA", "SALIDA", "AJUSTE"]);
+export const movimientoMotivoEnum = pgEnum("movimiento_motivo", ["COMPRA", "CONSUMO_PEDIDO", "ANULACION", "MERMA", "AJUSTE_MANUAL", "INICIAL"]);
+
+export const insumos = pgTable("insumos", {
+  id: serial("id").primaryKey(),
+  empresaId: integer("empresa_id").references(() => empresas.id).notNull(),
+  nombre: varchar("nombre", { length: 255 }).notNull(),
+  codigo: varchar("codigo", { length: 40 }).notNull(),
+  codigoBarras: varchar("codigo_barras", { length: 64 }),
+  unidad: unidadInsumoEnum("unidad").notNull(),
+  stock: decimal("stock", { precision: 12, scale: 3 }).default("0").notNull(),
+  stockMinimo: decimal("stock_minimo", { precision: 12, scale: 3 }).default("0").notNull(),
+  costoPromedio: decimal("costo_promedio", { precision: 10, scale: 4 }).default("0").notNull(),
+  activo: boolean("activo").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("insumos_empresa_codigo").on(t.empresaId, t.codigo),
+  uniqueIndex("insumos_empresa_codigo_barras").on(t.empresaId, t.codigoBarras),
+]);
+
+export type Insumo = typeof insumos.$inferSelect;
+export type InsertInsumo = typeof insumos.$inferInsert;
+
+export const movimientosInventario = pgTable("movimientos_inventario", {
+  id: serial("id").primaryKey(),
+  empresaId: integer("empresa_id").references(() => empresas.id).notNull(),
+  insumoId: integer("insumo_id").references(() => insumos.id).notNull(),
+  tipo: movimientoTipoEnum("tipo").notNull(),
+  motivo: movimientoMotivoEnum("motivo").notNull(),
+  // Siempre positiva. En AJUSTE guarda el saldo OBJETIVO (no el delta); saldoDespues es el saldo autoritativo.
+  cantidad: decimal("cantidad", { precision: 12, scale: 3 }).notNull(),
+  saldoDespues: decimal("saldo_despues", { precision: 12, scale: 3 }).notNull(),
+  costoUnitario: decimal("costo_unitario", { precision: 10, scale: 4 }),
+  referenciaTipo: varchar("referencia_tipo", { length: 20 }),
+  referenciaId: integer("referencia_id"),
+  empleadoId: integer("empleado_id").references(() => empleados.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("movimientos_insumo_created").on(t.insumoId, t.createdAt),
+  // Reposicion por item de pedido (Task 10) busca por referencia.
+  index("movimientos_referencia").on(t.referenciaTipo, t.referenciaId),
+]);
+
+export type MovimientoInventario = typeof movimientosInventario.$inferSelect;
+export type InsertMovimientoInventario = typeof movimientosInventario.$inferInsert;
+
+export const compras = pgTable("compras", {
+  id: serial("id").primaryKey(),
+  empresaId: integer("empresa_id").references(() => empresas.id).notNull(),
+  fecha: date("fecha", { mode: "string" }).notNull(),
+  proveedor: varchar("proveedor", { length: 255 }),
+  comprobante: varchar("comprobante", { length: 50 }),
+  total: decimal("total", { precision: 10, scale: 2 }).notNull(),
+  notas: text("notas"),
+  empleadoId: integer("empleado_id").references(() => empleados.id).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("compras_empresa_fecha").on(t.empresaId, t.fecha),
+]);
+
+export type Compra = typeof compras.$inferSelect;
+
+export const compraItems = pgTable("compra_items", {
+  id: serial("id").primaryKey(),
+  compraId: integer("compra_id").references(() => compras.id).notNull(),
+  insumoId: integer("insumo_id").references(() => insumos.id).notNull(),
+  cantidad: decimal("cantidad", { precision: 12, scale: 3 }).notNull(),
+  costoUnitario: decimal("costo_unitario", { precision: 10, scale: 4 }).notNull(),
+  subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull(),
+});
+
+export type CompraItem = typeof compraItems.$inferSelect;
+
+export const recetas = pgTable("recetas", {
+  id: serial("id").primaryKey(),
+  empresaId: integer("empresa_id").references(() => empresas.id).notNull(),
+  productoId: integer("producto_id").references(() => productos.id).notNull(),
+  insumoId: integer("insumo_id").references(() => insumos.id).notNull(),
+  cantidad: decimal("cantidad", { precision: 12, scale: 3 }).notNull(),
+}, (t) => [
+  uniqueIndex("recetas_producto_insumo").on(t.productoId, t.insumoId),
+]);
+
+export type Receta = typeof recetas.$inferSelect;
+export type InsertReceta = typeof recetas.$inferInsert;
