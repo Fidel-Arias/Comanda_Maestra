@@ -7,6 +7,8 @@ import { z } from "zod";
 import * as db from "./db";
 import { publish } from "./lib/events";
 import * as nubefact from "./lib/nubefact";
+import { normalizarDocumento } from "./lib/documento";
+import { toPublicEmpresa } from "./lib/empresa";
 
 /**
  * Mapeo de tipos de comprobante para NubeFact JSON API
@@ -37,13 +39,44 @@ export const appRouter = router({
   // ============================================
   empresa: router({
     list: publicProcedure.query(async () => {
-      return db.getEmpresas();
+      return (await db.getEmpresas()).map(toPublicEmpresa);
     }),
 
     getById: publicProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input }) => {
-        return db.getEmpresaById(input.id);
+        const e = await db.getEmpresaById(input.id);
+        return e ? toPublicEmpresa(e) : null;
+      }),
+  }),
+
+  // ============================================
+  // CLIENTE ROUTER (búsqueda con caché en BD)
+  // ============================================
+  cliente: router({
+    listByEmpresa: publicProcedure
+      .input(z.object({ empresaId: z.number() }))
+      .query(async ({ input }) => db.getClientesByEmpresa(input.empresaId)),
+
+    buscarPorDocumento: publicProcedure
+      .input(z.object({ empresaId: z.number(), numero: z.string() }))
+      .mutation(async ({ input }) => {
+        const { tipo, numero } = normalizarDocumento(input.numero);
+
+        const existente = await db.getClienteByDocumento(input.empresaId, numero);
+        if (existente) return { cliente: existente, origen: "BD" as const };
+
+        const empresa = await db.getEmpresaById(input.empresaId);
+        const entidad = await nubefact.consultarEntidad(numero, empresa?.apisNetPeToken ?? undefined);
+
+        const cliente = await db.createCliente({
+          empresaId: input.empresaId,
+          nombre: entidad.razon_social,
+          ...(tipo === "RUC" ? { ruc: numero } : { dni: numero }),
+          direccion: entidad.direccion ?? null,
+          tipoCliente: tipo === "RUC" ? "EMPRESA" : "PERSONA",
+        });
+        return { cliente, origen: "API" as const };
       }),
   }),
 
@@ -847,9 +880,14 @@ export const appRouter = router({
         logoUrl: z.string().nullable().optional(),
         impuestoPorcentaje: z.string().optional(),
         moneda: z.string().optional(),
+        // undefined = no tocar; "" o null = borrar
+        apisNetPeToken: z.string().max(255).nullable().optional(),
       }))
       .mutation(async ({ input }) => {
         const { id, ...data } = input;
+        if (data.apisNetPeToken !== undefined) {
+          data.apisNetPeToken = data.apisNetPeToken?.trim() || null;
+        }
         await db.updateEmpresa(id, data);
         return { success: true };
       }),
@@ -1190,11 +1228,13 @@ export const appRouter = router({
 
     consultarEntidad: publicProcedure
       .input(z.object({
+        empresaId: z.number().optional(),
         numero: z.string().min(8).max(11),
       }))
       .mutation(async ({ input }) => {
         try {
-          return await nubefact.consultarEntidad(input.numero);
+          const empresa = input.empresaId ? await db.getEmpresaById(input.empresaId) : undefined;
+          return await nubefact.consultarEntidad(input.numero, empresa?.apisNetPeToken ?? undefined);
         } catch (error: any) {
           throw new Error(error.message);
         }

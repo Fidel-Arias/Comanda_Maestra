@@ -1,4 +1,4 @@
-import { integer, pgEnum, pgTable, text, timestamp, varchar, decimal, boolean, serial, date, time } from "drizzle-orm/pg-core";
+import { integer, pgEnum, pgTable, text, timestamp, varchar, decimal, boolean, serial, date, time, uniqueIndex } from "drizzle-orm/pg-core";
 
 // ============================================
 // ENUMS para PostgreSQL
@@ -31,6 +31,8 @@ export const empresas = pgTable("empresas", {
   activa: boolean("activa").default(true),
   impuestoPorcentaje: decimal("impuesto_porcentaje", { precision: 5, scale: 2 }).default("10.50"),
   moneda: varchar("moneda", { length: 3 }).default("PEN"),
+  // API key de apis.net.pe (secreto: nunca enviar al cliente, ver toPublicEmpresa)
+  apisNetPeToken: varchar("apis_net_pe_token", { length: 255 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -177,7 +179,10 @@ export const clientes = pgTable("clientes", {
   direccion: text("direccion"),
   tipoCliente: varchar("tipo_cliente", { length: 50 }).default("CONSUMIDOR_FINAL"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (t) => [
+  uniqueIndex("clientes_empresa_dni").on(t.empresaId, t.dni),
+  uniqueIndex("clientes_empresa_ruc").on(t.empresaId, t.ruc),
+]);
 
 export type Cliente = typeof clientes.$inferSelect;
 export type InsertCliente = typeof clientes.$inferInsert;
