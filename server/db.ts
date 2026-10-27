@@ -6,6 +6,7 @@ import {
   empresas, InsertEmpresa,
   empleados, InsertEmpleado,
   mesas, InsertMesa,
+  zonas, InsertZona,
   categorias, InsertCategoria,
   productos, InsertProducto,
   pedidos, InsertPedido,
@@ -360,6 +361,44 @@ export async function updateMesa(id: number, data: Partial<InsertMesa>) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
   await db.update(mesas).set(data).where(eq(mesas.id, id));
+}
+
+export async function getZonasByEmpresa(empresaId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(zonas).where(eq(zonas.empresaId, empresaId)).orderBy(asc(zonas.nombre));
+}
+
+export async function getZonaById(id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const result = await db.select().from(zonas).where(eq(zonas.id, id)).limit(1);
+  return result[0] || null;
+}
+
+export async function getMesasByZona(zonaId: number): Promise<{ id: number; sillas: number }[]> {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({ id: mesas.id, sillas: mesas.sillas }).from(mesas).where(eq(mesas.zonaId, zonaId));
+}
+
+export async function createZona(data: InsertZona) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  const result = await db.insert(zonas).values(data).returning({ id: zonas.id });
+  return result[0].id;
+}
+
+export async function updateZona(id: number, data: Partial<InsertZona>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.update(zonas).set(data).where(eq(zonas.id, id));
+}
+
+export async function deleteZona(id: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database not available");
+  await db.delete(zonas).where(eq(zonas.id, id));
 }
 
 export async function deleteMesa(id: number) {

@@ -31,16 +31,30 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { validarMesaEnZona } from "@shared/zonas";
 
 interface MesaForm {
   numero: string;
   capacidad: string;
+  zonaId: string; // "" = sin zona
 }
 
 const initialForm: MesaForm = {
   numero: "",
   capacidad: "4",
+  zonaId: "",
 };
+
+type TipoZona = "SALON" | "TERRAZA" | "BARRA";
+
+interface ZonaForm {
+  nombre: string;
+  tipo: TipoZona;
+  maxMesas: string;
+  maxSillas: string;
+}
+
+const initialZonaForm: ZonaForm = { nombre: "", tipo: "SALON", maxMesas: "10", maxSillas: "40" };
 
 export default function GestionMesas() {
   const [, navigate] = useLocation();
@@ -50,12 +64,72 @@ export default function GestionMesas() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [form, setForm] = useState<MesaForm>(initialForm);
+  const [isZonaDialogOpen, setIsZonaDialogOpen] = useState(false);
+  const [editingZonaId, setEditingZonaId] = useState<number | null>(null);
+  const [zonaForm, setZonaForm] = useState<ZonaForm>(initialZonaForm);
 
   // Queries
   const { data: mesas, isLoading, refetch } = trpc.mesa.listByEmpresa.useQuery(
     { empresaId: empresa?.id || 0 },
     { enabled: !!empresa?.id }
   );
+
+  const { data: zonas, refetch: refetchZonas } = trpc.zona.listByEmpresa.useQuery(
+    { empresaId: empresa?.id || 0 },
+    { enabled: !!empresa?.id }
+  );
+
+  const closeZonaDialog = () => {
+    setIsZonaDialogOpen(false);
+    setEditingZonaId(null);
+    setZonaForm(initialZonaForm);
+  };
+
+  const zonaMutationOpts = {
+    onSuccess: () => {
+      toast.success("Zona guardada");
+      refetchZonas();
+      closeZonaDialog();
+    },
+    onError: (error: { message?: string }) => {
+      toast.error(error.message || "Error al guardar zona");
+    },
+  };
+  const createZonaMutation = trpc.zona.create.useMutation(zonaMutationOpts);
+  const updateZonaMutation = trpc.zona.update.useMutation(zonaMutationOpts);
+  const deleteZonaMutation = trpc.zona.delete.useMutation({
+    onSuccess: () => {
+      toast.success("Zona eliminada");
+      refetchZonas();
+    },
+    onError: (error: { message?: string }) => {
+      toast.error(error.message || "Error al eliminar zona");
+    },
+  });
+
+  const handleSubmitZona = () => {
+    const maxMesas = parseInt(zonaForm.maxMesas);
+    const maxSillas = parseInt(zonaForm.maxSillas);
+    if (!zonaForm.nombre.trim()) {
+      toast.error("Ingresa el nombre de la zona");
+      return;
+    }
+    if (isNaN(maxMesas) || maxMesas < 1 || isNaN(maxSillas) || maxSillas < 1) {
+      toast.error("Los límites deben ser mayores a 0");
+      return;
+    }
+    const data = { nombre: zonaForm.nombre.trim(), tipo: zonaForm.tipo, maxMesas, maxSillas };
+    if (editingZonaId) {
+      updateZonaMutation.mutate({ id: editingZonaId, ...data });
+    } else {
+      createZonaMutation.mutate({ empresaId: empresa?.id || 0, ...data });
+    }
+  };
+
+  const uso = (zonaId: number) => {
+    const ms = (mesas ?? []).filter((m) => m.zonaId === zonaId);
+    return { mesas: ms.length, sillas: ms.reduce((sum, m) => sum + m.sillas, 0) };
+  };
 
   // Mutations
   const createMutation = trpc.mesa.create.useMutation({
@@ -103,7 +177,8 @@ export default function GestionMesas() {
   const handleOpenEdit = (mesa: NonNullable<typeof mesas>[0]) => {
     setForm({
       numero: mesa.numero.toString(),
-      capacidad: mesa.capacidad.toString(),
+      capacidad: mesa.sillas.toString(),
+      zonaId: mesa.zonaId ? mesa.zonaId.toString() : "",
     });
     setEditingId(mesa.id);
     setIsDialogOpen(true);
@@ -114,6 +189,15 @@ export default function GestionMesas() {
     setForm(initialForm);
     setEditingId(null);
   };
+
+  const zonaSeleccionada = form.zonaId ? zonas?.find((z) => z.id === parseInt(form.zonaId)) : undefined;
+  const zonaError = zonaSeleccionada
+    ? validarMesaEnZona(
+        zonaSeleccionada,
+        (mesas ?? []).filter((m) => m.zonaId === zonaSeleccionada.id).map((m) => ({ id: m.id, sillas: m.sillas })),
+        { id: editingId ?? undefined, sillas: parseInt(form.capacidad) }
+      )
+    : null;
 
   const handleSubmit = () => {
     if (!form.numero || !form.capacidad) {
@@ -141,13 +225,20 @@ export default function GestionMesas() {
       return;
     }
 
+    if (zonaError) {
+      toast.error(zonaError);
+      return;
+    }
+
+    const zonaId = form.zonaId ? parseInt(form.zonaId) : null;
     if (editingId) {
-      updateMutation.mutate({ id: editingId, numero, capacidad });
+      updateMutation.mutate({ id: editingId, numero, sillas: capacidad, zonaId });
     } else {
-      createMutation.mutate({ 
-        empresaId: empresa?.id || 0, 
-        numero, 
-        capacidad 
+      createMutation.mutate({
+        empresaId: empresa?.id || 0,
+        numero,
+        sillas: capacidad,
+        zonaId,
       });
     }
   };
@@ -240,6 +331,56 @@ export default function GestionMesas() {
         </div>
       </div>
 
+      {/* Zonas */}
+      <section className="container py-4 border-b border-border/50">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-semibold text-foreground">Zonas</h2>
+          <Button size="sm" variant="outline" className="gap-1" onClick={() => setIsZonaDialogOpen(true)}>
+            <Plus className="h-4 w-4" /> Nueva zona
+          </Button>
+        </div>
+        {zonas && zonas.length > 0 ? (
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {zonas.map((z) => {
+              const u = uso(z.id);
+              return (
+                <Card key={z.id} className="bg-card/50 border-border/50">
+                  <CardContent className="p-3 flex items-center justify-between gap-2">
+                    <div>
+                      <p className="font-medium text-foreground">{z.nombre} <span className="text-xs text-muted-foreground">({z.tipo})</span></p>
+                      <p className="text-xs text-muted-foreground">
+                        Mesas {u.mesas}/{z.maxMesas} · Sillas {u.sillas}/{z.maxSillas}
+                      </p>
+                    </div>
+                    <div className="flex gap-1">
+                      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => {
+                        setEditingZonaId(z.id);
+                        setZonaForm({ nombre: z.nombre, tipo: z.tipo, maxMesas: String(z.maxMesas), maxSillas: String(z.maxSillas) });
+                        setIsZonaDialogOpen(true);
+                      }}>
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive hover:text-destructive"
+                        onClick={() => {
+                          if (u.mesas > 0) {
+                            toast.error("No se puede eliminar una zona que tiene mesas");
+                            return;
+                          }
+                          deleteZonaMutation.mutate({ id: z.id });
+                        }}>
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">Sin zonas. Las mesas sin zona no tienen límites.</p>
+        )}
+      </section>
+
       {/* Mesas Grid */}
       <main className="container py-4">
         {isLoading ? (
@@ -289,7 +430,10 @@ export default function GestionMesas() {
                     
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Users className="h-4 w-4" />
-                      <span>{mesa.capacidad} personas</span>
+                      <span>
+                        {mesa.sillas} sillas
+                        {mesa.zonaId ? ` · ${zonas?.find((z) => z.id === mesa.zonaId)?.nombre ?? ""}` : ""}
+                      </span>
                     </div>
                     
                     <div className={cn(
@@ -351,7 +495,22 @@ export default function GestionMesas() {
             </div>
 
             <div className="grid gap-2">
-              <Label htmlFor="capacidad">Capacidad (personas)</Label>
+              <Label htmlFor="zona">Zona</Label>
+              <select
+                id="zona"
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                value={form.zonaId}
+                onChange={(e) => setForm({ ...form, zonaId: e.target.value })}
+              >
+                <option value="">Sin zona</option>
+                {zonas?.filter((z) => z.activa).map((z) => (
+                  <option key={z.id} value={z.id}>{z.nombre}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="capacidad">Sillas</Label>
               <Input
                 id="capacidad"
                 type="number"
@@ -361,6 +520,7 @@ export default function GestionMesas() {
                 onChange={(e) => setForm({ ...form, capacidad: e.target.value })}
                 placeholder="4"
               />
+              {zonaError && <p className="text-xs text-destructive">{zonaError}</p>}
             </div>
           </div>
 
@@ -368,9 +528,54 @@ export default function GestionMesas() {
             <Button variant="outline" onClick={handleCloseDialog}>
               Cancelar
             </Button>
-            <Button onClick={handleSubmit} disabled={isSubmitting}>
+            <Button onClick={handleSubmit} disabled={isSubmitting || !!zonaError}>
               {isSubmitting && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               {editingId ? "Guardar Cambios" : "Crear Mesa"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Zona Dialog */}
+      <Dialog open={isZonaDialogOpen} onOpenChange={(o) => (o ? setIsZonaDialogOpen(true) : closeZonaDialog())}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>{editingZonaId ? "Editar Zona" : "Nueva Zona"}</DialogTitle>
+            <DialogDescription>Define el límite de mesas y sillas de la zona</DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid gap-2">
+              <Label htmlFor="zona-nombre">Nombre</Label>
+              <Input id="zona-nombre" value={zonaForm.nombre} onChange={(e) => setZonaForm({ ...zonaForm, nombre: e.target.value })} placeholder="Terraza" />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="zona-tipo">Tipo</Label>
+              <select
+                id="zona-tipo"
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                value={zonaForm.tipo}
+                onChange={(e) => setZonaForm({ ...zonaForm, tipo: e.target.value as TipoZona })}
+              >
+                <option value="SALON">Salón</option>
+                <option value="TERRAZA">Terraza</option>
+                <option value="BARRA">Barra</option>
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="grid gap-2">
+                <Label htmlFor="zona-max-mesas">Máx. mesas</Label>
+                <Input id="zona-max-mesas" type="number" min="1" value={zonaForm.maxMesas} onChange={(e) => setZonaForm({ ...zonaForm, maxMesas: e.target.value })} />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="zona-max-sillas">Máx. sillas</Label>
+                <Input id="zona-max-sillas" type="number" min="1" value={zonaForm.maxSillas} onChange={(e) => setZonaForm({ ...zonaForm, maxSillas: e.target.value })} />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={closeZonaDialog}>Cancelar</Button>
+            <Button onClick={handleSubmitZona} disabled={createZonaMutation.isPending || updateZonaMutation.isPending}>
+              Guardar
             </Button>
           </DialogFooter>
         </DialogContent>

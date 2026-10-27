@@ -4,6 +4,8 @@ import { format } from "date-fns";
 import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
+import { validarMesaEnZona } from "@shared/zonas";
 import * as db from "./db";
 import { publish } from "./lib/events";
 import * as nubefact from "./lib/nubefact";
@@ -21,6 +23,23 @@ const TIPO_NUBEFACT = {
   NOTA_DEBITO: 4,
   TICKET: 0, // No enviado a NubeFact real
 };
+
+async function assertMesaEnZona(
+  empresaId: number,
+  zonaId: number,
+  nueva: { id?: number; sillas: number }
+) {
+  const zona = await db.getZonaById(zonaId);
+  if (!zona || zona.empresaId !== empresaId) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Zona no encontrada" });
+  }
+  if (!zona.activa) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "La zona está inactiva" });
+  }
+  const mesasZona = await db.getMesasByZona(zonaId);
+  const error = validarMesaEnZona(zona, mesasZona, nueva);
+  if (error) throw new TRPCError({ code: "BAD_REQUEST", message: error });
+}
 
 export const appRouter = router({
   system: systemRouter,
@@ -151,13 +170,21 @@ export const appRouter = router({
       .input(z.object({
         empresaId: z.number(),
         numero: z.number().min(1),
-        capacidad: z.number().min(1).max(20),
+        capacidad: z.number().min(1).max(20).optional(),
+        zonaId: z.number().nullable().optional(),
+        sillas: z.number().int().min(1).optional(),
       }))
       .mutation(async ({ input }) => {
+        const sillas = input.sillas ?? input.capacidad ?? 4;
+        if (input.zonaId) {
+          await assertMesaEnZona(input.empresaId, input.zonaId, { sillas });
+        }
         const mesaId = await db.createMesa({
           empresaId: input.empresaId,
           numero: input.numero,
-          capacidad: input.capacidad,
+          zonaId: input.zonaId ?? null,
+          sillas,
+          capacidad: sillas,
         });
         return { success: true, mesaId };
       }),
@@ -167,10 +194,27 @@ export const appRouter = router({
         id: z.number(),
         numero: z.number().min(1).optional(),
         capacidad: z.number().min(1).max(20).optional(),
+        zonaId: z.number().nullable().optional(),
+        sillas: z.number().int().min(1).optional(),
       }))
       .mutation(async ({ input }) => {
-        const { id, ...data } = input;
-        await db.updateMesa(id, data);
+        const { id, capacidad, ...data } = input;
+        const sillas = input.sillas ?? capacidad;
+        const patch: Record<string, unknown> = { ...data };
+        if (sillas !== undefined) {
+          patch.sillas = sillas;
+          patch.capacidad = sillas;
+        }
+        const touchesZona = input.zonaId !== undefined || sillas !== undefined;
+        if (touchesZona) {
+          const actual = await db.getMesaById(id);
+          if (!actual) throw new TRPCError({ code: "NOT_FOUND", message: "Mesa no encontrada" });
+          const zonaId = input.zonaId !== undefined ? input.zonaId : actual.zonaId;
+          if (zonaId) {
+            await assertMesaEnZona(actual.empresaId, zonaId, { id, sillas: sillas ?? actual.sillas });
+          }
+        }
+        await db.updateMesa(id, patch);
         return { success: true };
       }),
 
@@ -178,6 +222,63 @@ export const appRouter = router({
       .input(z.object({ id: z.number() }))
       .mutation(async ({ input }) => {
         await db.deleteMesa(input.id);
+        return { success: true };
+      }),
+  }),
+
+  // ============================================
+  // ZONA ROUTER
+  // ============================================
+  zona: router({
+    listByEmpresa: publicProcedure
+      .input(z.object({ empresaId: z.number() }))
+      .query(async ({ input }) => db.getZonasByEmpresa(input.empresaId)),
+
+    create: publicProcedure
+      .input(z.object({
+        empresaId: z.number(),
+        nombre: z.string().min(1).max(100),
+        tipo: z.enum(["SALON", "TERRAZA", "BARRA"]),
+        maxMesas: z.number().int().min(1),
+        maxSillas: z.number().int().min(1),
+        activa: z.boolean().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const zonaId = await db.createZona(input);
+        return { success: true, zonaId };
+      }),
+
+    update: publicProcedure
+      .input(z.object({
+        id: z.number(),
+        nombre: z.string().min(1).max(100).optional(),
+        tipo: z.enum(["SALON", "TERRAZA", "BARRA"]).optional(),
+        maxMesas: z.number().int().min(1).optional(),
+        maxSillas: z.number().int().min(1).optional(),
+        activa: z.boolean().optional(),
+      }))
+      .mutation(async ({ input }) => {
+        const { id, ...data } = input;
+        const mesasZona = await db.getMesasByZona(id);
+        if (data.maxMesas !== undefined && data.maxMesas < mesasZona.length) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `La zona ya tiene ${mesasZona.length} mesas; no se puede bajar el máximo de mesas a ${data.maxMesas}` });
+        }
+        const usadas = mesasZona.reduce((s, m) => s + m.sillas, 0);
+        if (data.maxSillas !== undefined && data.maxSillas < usadas) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `La zona ya usa ${usadas} sillas; no se puede bajar el máximo de sillas a ${data.maxSillas}` });
+        }
+        await db.updateZona(id, data);
+        return { success: true };
+      }),
+
+    delete: publicProcedure
+      .input(z.object({ id: z.number() }))
+      .mutation(async ({ input }) => {
+        const mesasZona = await db.getMesasByZona(input.id);
+        if (mesasZona.length > 0) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "No se puede eliminar una zona que tiene mesas" });
+        }
+        await db.deleteZona(input.id);
         return { success: true };
       }),
   }),

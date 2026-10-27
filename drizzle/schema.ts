@@ -63,11 +63,28 @@ export type InsertEmpleado = typeof empleados.$inferInsert;
 // TABLA: MESAS
 // ============================================
 
+export const tipoZonaEnum = pgEnum("tipo_zona", ["SALON", "TERRAZA", "BARRA"]);
+
+export const zonas = pgTable("zonas", {
+  id: serial("id").primaryKey(),
+  empresaId: integer("empresa_id").references(() => empresas.id).notNull(),
+  nombre: varchar("nombre", { length: 100 }).notNull(),
+  tipo: tipoZonaEnum("tipo").default("SALON").notNull(),
+  maxMesas: integer("max_mesas").notNull(),
+  maxSillas: integer("max_sillas").notNull(),
+  activa: boolean("activa").default(true).notNull(),
+});
+
+export type Zona = typeof zonas.$inferSelect;
+export type InsertZona = typeof zonas.$inferInsert;
+
 export const mesas = pgTable("mesas", {
   id: serial("id").primaryKey(),
   empresaId: integer("empresa_id").references(() => empresas.id).notNull(),
   numero: integer("numero").notNull(),
   capacidad: integer("capacidad").default(4).notNull(),
+  zonaId: integer("zona_id").references(() => zonas.id),
+  sillas: integer("sillas").default(4).notNull(),
   tableStatus: tableStatusEnum("table_status").default("DISPONIBLE"),
   mozoAsignadoId: integer("mozo_asignado_id").references(() => empleados.id),
   personas: integer("personas").default(0),
