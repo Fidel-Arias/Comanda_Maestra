@@ -19,6 +19,7 @@ interface Empresa {
   logoUrl: string | null;
   impuestoPorcentaje: string;
   moneda: string;
+  tieneApiKey?: boolean;
 }
 
 interface POSContextType {

@@ -52,6 +52,8 @@ export default function Cajero() {
   const [rucCliente, setRucCliente] = useState("");
   const [nombreCliente, setNombreCliente] = useState("");
   const [direccionCliente, setDireccionCliente] = useState("");
+  const [clienteId, setClienteId] = useState<number | null>(null);
+  const [clienteOrigen, setClienteOrigen] = useState<"BD" | "API" | null>(null);
 
   // Queries
   const { data: pedidosActivos, isLoading, refetch } = trpc.pedido.listActivos.useQuery(
@@ -152,16 +154,16 @@ export default function Cajero() {
   const cerrarCajaMutation = trpc.caja.cerrar.useMutation();
   const createVentaMutation = trpc.billing.createVenta.useMutation();
   const generateComprobanteMutation = trpc.billing.generateComprobante.useMutation();
-  const consultarEntidadMutation = trpc.billing.consultarEntidad.useMutation({
-    onSuccess: (data) => {
-      if (data) {
-        setNombreCliente(data.razon_social);
-        if (data.direccion) setDireccionCliente(data.direccion);
-        toast.success("Contribuyente encontrado");
-      }
+  const consultarEntidadMutation = trpc.cliente.buscarPorDocumento.useMutation({
+    onSuccess: ({ cliente, origen }) => {
+      setClienteId(cliente.id);
+      setClienteOrigen(origen);
+      setNombreCliente(cliente.nombre);
+      if (cliente.direccion) setDireccionCliente(cliente.direccion);
+      toast.success(origen === "BD" ? "Cliente guardado encontrado" : "Cliente nuevo registrado");
     },
     onError: (error) => {
-      toast.error(`Error al consultar: ${error.message}`);
+      toast.error(`No se pudo consultar: ${error.message}. Puede escribir los datos a mano.`);
     }
   });
 
@@ -170,7 +172,8 @@ export default function Cajero() {
       toast.error("Ingrese un documento válido (8 o 11 dígitos)");
       return;
     }
-    consultarEntidadMutation.mutate({ numero: rucCliente });
+    if (!empresa) return;
+    consultarEntidadMutation.mutate({ empresaId: empresa.id, numero: rucCliente });
   };
 
   // Actualizar monto a pagar cuando cambia la subcuenta o cargan los items
@@ -296,6 +299,7 @@ export default function Cajero() {
         subtotal: (total / 1.18).toFixed(2),
         igv: (total - (total / 1.18)).toFixed(2),
         subCuenta: selectedSubCuenta || 0,
+        clienteId: clienteId ?? undefined,
       });
 
       // 3. Generar Comprobante Electrónico (Boleta/Factura)
@@ -318,6 +322,8 @@ export default function Cajero() {
       setTipoComprobante("TICKET");
       setRucCliente("");
       setNombreCliente("");
+      setClienteId(null);
+      setClienteOrigen(null);
       refetch();
       refetchVentas();
     } catch (error) {
@@ -1053,7 +1059,11 @@ export default function Cajero() {
                         id="ruc"
                         placeholder={tipoComprobante === "FACTURA" ? "Ingrese RUC (11 dígitos)" : "Ingrese documento (opcional)"}
                         value={rucCliente}
-                        onChange={(e) => setRucCliente(e.target.value)}
+                        onChange={(e) => {
+                          setRucCliente(e.target.value);
+                          setClienteId(null);
+                          setClienteOrigen(null);
+                        }}
                         maxLength={11}
                         className="pr-10"
                         onKeyDown={(e) => {
@@ -1075,6 +1085,11 @@ export default function Cajero() {
                         )}
                       </Button>
                     </div>
+                    {clienteOrigen && (
+                      <Badge variant={clienteOrigen === "BD" ? "secondary" : "default"} className="mt-1">
+                        {clienteOrigen === "BD" ? "Guardado" : "Nuevo"}
+                      </Badge>
+                    )}
                   </div>
                   <div>
                     <Label htmlFor="razon">{tipoComprobante === "FACTURA" ? "Razón Social" : "Nombre del Cliente"}</Label>
