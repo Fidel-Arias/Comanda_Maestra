@@ -65,6 +65,7 @@ async function moverInsumo(
   await exigirRolInventario(empleadoId, empresaId);
   const insumo = await db.getInsumoById(m.insumoId, empresaId);
   if (!insumo) throw new TRPCError({ code: "NOT_FOUND", message: "Insumo no encontrado" });
+  if (!insumo.activo) throw new TRPCError({ code: "BAD_REQUEST", message: "El insumo está desactivado" });
   const r = await db.runInTransaction(tx => aplicarMovimiento(tx, { ...m, empresaId, empleadoId }));
   try {
     publish(empresaId, { type: "insumo_stock", insumoId: m.insumoId, stock: r.saldoDespues, bajo: r.bajo });

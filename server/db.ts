@@ -1,4 +1,4 @@
-import { eq, and, or, desc, asc, sql, gte, lte, inArray } from "drizzle-orm";
+import { eq, and, or, desc, asc, sql, gte, lte, lt, inArray } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import {
@@ -1789,7 +1789,7 @@ export async function getKardexRows(empresaId: number, insumoId: number, desde: 
   const prev = await db.select({ saldo: movimientosInventario.saldoDespues }).from(movimientosInventario).where(and(
     eq(movimientosInventario.empresaId, empresaId),
     eq(movimientosInventario.insumoId, insumoId),
-    sql`${movimientosInventario.createdAt} < ${desde}`,
+    lt(movimientosInventario.createdAt, desde),
   )).orderBy(desc(movimientosInventario.createdAt), desc(movimientosInventario.id)).limit(1);
   const movs = await db.select().from(movimientosInventario).where(and(
     eq(movimientosInventario.empresaId, empresaId),

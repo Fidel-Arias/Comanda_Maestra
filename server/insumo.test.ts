@@ -57,6 +57,22 @@ describe("roles", () => {
     vi.mocked(db.getEmpleadoById).mockResolvedValue(emp("MOZO") as any);
     await expect(run()).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(db.createInsumo).not.toHaveBeenCalled();
+    expect(db.updateInsumo).not.toHaveBeenCalled();
+    expect(db.desactivarInsumo).not.toHaveBeenCalled();
+    expect(aplicarMovimiento).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["create", () => caller().insumo.create(nuevo)],
+    ["update", () => caller().insumo.update({ id: 7, empresaId: 1, nombre: "X", empleadoId: 3 })],
+    ["delete", () => caller().insumo.delete({ id: 7, empresaId: 1, empleadoId: 3 })],
+    ["registrarIngreso", () => caller().insumo.registrarIngreso({ empresaId: 1, insumoId: 7, cantidad: 10, empleadoId: 3 })],
+  ])("%s con empleado de otra empresa -> FORBIDDEN", async (_n, run) => {
+    vi.mocked(db.getEmpleadoById).mockResolvedValue(emp("DUENO", 2) as any);
+    await expect(run()).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(db.createInsumo).not.toHaveBeenCalled();
+    expect(db.updateInsumo).not.toHaveBeenCalled();
+    expect(db.desactivarInsumo).not.toHaveBeenCalled();
     expect(aplicarMovimiento).not.toHaveBeenCalled();
   });
 
@@ -143,7 +159,18 @@ describe("lecturas", () => {
   });
 });
 
+describe("insumo desactivado", () => {
+  it("rechaza movimientos", async () => {
+    vi.mocked(db.getInsumoById).mockResolvedValue(insumo({ activo: false }) as any);
+    await expect(caller().insumo.registrarIngreso({ empresaId: 1, insumoId: 7, cantidad: 1, empleadoId: 3 })).rejects.toThrow(/desactivado/);
+    expect(aplicarMovimiento).not.toHaveBeenCalled();
+  });
+});
+
 describe("armarKardex", () => {
+  it("rango vacio: filas [] y saldoInicial conservado", () => {
+    expect(armarKardex(12, [])).toEqual({ saldoInicial: "12.000", filas: [] });
+  });
   const mov = (tipo: string, cantidad: string, saldoDespues: string, extra: object = {}) => ({
     createdAt: new Date("2026-02-01"), tipo, motivo: "COMPRA", cantidad, saldoDespues,
     costoUnitario: null, referenciaTipo: null, referenciaId: null, ...extra,
