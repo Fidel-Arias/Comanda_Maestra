@@ -1,3 +1,4 @@
+import { PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 import { aplicarMovimiento, calcularSaldo, consumoPorPlato, costoPromedio, type Tx } from "./lib/inventario";
 
@@ -104,5 +105,55 @@ describe("aplicarMovimiento", () => {
   it("lanza si el insumo no existe para la empresa", async () => {
     const { tx } = fakeTx(null);
     await expect(aplicarMovimiento(tx, { ...base, tipo: "SALIDA", motivo: "MERMA", cantidad: 1 })).rejects.toThrow(/insumo/i);
+  });
+
+  const render = (v: any) => new PgDialect().sqlToQuery(v);
+
+  it("renderiza el SQL correcto de stock por tipo", async () => {
+    const row = { stock: "1.000", stockMinimo: "0", costoPromedio: "0", nombre: "X" };
+    const run = async (tipo: any, motivo: any) => {
+      const { tx, calls } = fakeTx(row);
+      await aplicarMovimiento(tx, { ...base, tipo, motivo, cantidad: 2 });
+      return render(calls.find(c => c.op === "update")!.values.stock);
+    };
+    const ent = await run("ENTRADA", "MERMA");
+    expect(ent.sql).toMatch(/"stock" \+ /);
+    expect(ent.params).toContain("2.000");
+    const sal = await run("SALIDA", "MERMA");
+    expect(sal.sql).toMatch(/"stock" - /);
+    expect(sal.params).toContain("2.000");
+    const aj = await run("AJUSTE", "AJUSTE_MANUAL");
+    expect(aj.sql).not.toContain("stock");
+    expect(aj.params).toContain("2.000");
+  });
+
+  it("ENTRADA/COMPRA sin costoUnitario no toca el costo", async () => {
+    const { tx, calls } = fakeTx({ stock: "5.000", stockMinimo: "0", costoPromedio: "3.0000", nombre: "X" });
+    await aplicarMovimiento(tx, { ...base, tipo: "ENTRADA", motivo: "COMPRA", cantidad: 2 });
+    expect(calls.filter(c => c.op === "update")).toHaveLength(1);
+  });
+
+  it("ENTRADA con motivo distinto de COMPRA no toca el costo", async () => {
+    const { tx, calls } = fakeTx({ stock: "5.000", stockMinimo: "0", costoPromedio: "3.0000", nombre: "X" });
+    await aplicarMovimiento(tx, { ...base, tipo: "ENTRADA", motivo: "ANULACION", cantidad: 2, costoUnitario: 9 });
+    expect(calls.filter(c => c.op === "update")).toHaveLength(1);
+  });
+
+  describe("validacion de entradas", () => {
+    const row = { stock: "1.000", stockMinimo: "0", costoPromedio: "0", nombre: "X" };
+    const casos: [string, any][] = [
+      ["NaN", { tipo: "ENTRADA", motivo: "COMPRA", cantidad: NaN }],
+      ["negativa", { tipo: "SALIDA", motivo: "MERMA", cantidad: -2 }],
+      ["redondea a cero", { tipo: "SALIDA", motivo: "MERMA", cantidad: 0.0001 }],
+      ["costoUnitario NaN", { tipo: "ENTRADA", motivo: "COMPRA", cantidad: 1, costoUnitario: NaN }],
+      ["costoUnitario negativo", { tipo: "ENTRADA", motivo: "COMPRA", cantidad: 1, costoUnitario: -1 }],
+    ];
+    for (const [nombre, m] of casos) {
+      it(`rechaza ${nombre} sin tocar la tx`, async () => {
+        const { tx, calls } = fakeTx(row);
+        await expect(aplicarMovimiento(tx, { ...base, ...m })).rejects.toThrow();
+        expect(calls).toHaveLength(0);
+      });
+    }
   });
 });

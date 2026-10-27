@@ -398,6 +398,7 @@ export const movimientosInventario = pgTable("movimientos_inventario", {
   insumoId: integer("insumo_id").references(() => insumos.id).notNull(),
   tipo: movimientoTipoEnum("tipo").notNull(),
   motivo: movimientoMotivoEnum("motivo").notNull(),
+  // Siempre positiva. En AJUSTE guarda el saldo OBJETIVO (no el delta); saldoDespues es el saldo autoritativo.
   cantidad: decimal("cantidad", { precision: 12, scale: 3 }).notNull(),
   saldoDespues: decimal("saldo_despues", { precision: 12, scale: 3 }).notNull(),
   costoUnitario: decimal("costo_unitario", { precision: 10, scale: 4 }),

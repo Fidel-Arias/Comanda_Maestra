@@ -56,6 +56,13 @@ export async function aplicarMovimiento(
   tx: Tx,
   m: MovimientoInput,
 ): Promise<{ saldoDespues: string; bajo: boolean; agotado: boolean; nombre: string }> {
+  if (!Number.isFinite(m.cantidad) || m.cantidad < 0 || (m.tipo !== "AJUSTE" && r3(m.cantidad) === 0)) {
+    throw new Error(`Cantidad invalida para movimiento de inventario: ${m.cantidad}`);
+  }
+  if (m.costoUnitario !== undefined && (!Number.isFinite(m.costoUnitario) || m.costoUnitario < 0)) {
+    throw new Error(`Costo unitario invalido: ${m.costoUnitario}`);
+  }
+  // Nota: para AJUSTE, `cantidad` guarda el saldo OBJETIVO (no el delta); `saldoDespues` es el saldo autoritativo.
   const cantidad = r3(m.cantidad);
   const nuevoStock =
     m.tipo === "AJUSTE"
