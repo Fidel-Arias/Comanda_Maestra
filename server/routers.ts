@@ -24,19 +24,24 @@ const TIPO_NUBEFACT = {
   TICKET: 0, // No enviado a NubeFact real
 };
 
+async function requireZona(id: number, empresaId: number) {
+  const zona = await db.getZonaById(id);
+  if (!zona || zona.empresaId !== empresaId) {
+    throw new TRPCError({ code: "NOT_FOUND", message: "Zona no encontrada" });
+  }
+  return zona;
+}
+
 async function assertMesaEnZona(
   empresaId: number,
   zonaId: number,
   nueva: { id?: number; sillas: number }
 ) {
-  const zona = await db.getZonaById(zonaId);
-  if (!zona || zona.empresaId !== empresaId) {
-    throw new TRPCError({ code: "NOT_FOUND", message: "Zona no encontrada" });
-  }
+  const zona = await requireZona(zonaId, empresaId);
   if (!zona.activa) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "La zona está inactiva" });
   }
-  const mesasZona = await db.getMesasByZona(zonaId);
+  const mesasZona = await db.getMesasByZona(zonaId, empresaId);
   const error = validarMesaEnZona(zona, mesasZona, nueva);
   if (error) throw new TRPCError({ code: "BAD_REQUEST", message: error });
 }
@@ -172,7 +177,7 @@ export const appRouter = router({
         numero: z.number().min(1),
         capacidad: z.number().min(1).max(20).optional(),
         zonaId: z.number().nullable().optional(),
-        sillas: z.number().int().min(1).optional(),
+        sillas: z.number().int().min(1).max(20).optional(),
       }))
       .mutation(async ({ input }) => {
         const sillas = input.sillas ?? input.capacidad ?? 4;
@@ -195,7 +200,7 @@ export const appRouter = router({
         numero: z.number().min(1).optional(),
         capacidad: z.number().min(1).max(20).optional(),
         zonaId: z.number().nullable().optional(),
-        sillas: z.number().int().min(1).optional(),
+        sillas: z.number().int().min(1).max(20).optional(),
       }))
       .mutation(async ({ input }) => {
         const { id, capacidad, ...data } = input;
@@ -251,6 +256,7 @@ export const appRouter = router({
     update: publicProcedure
       .input(z.object({
         id: z.number(),
+        empresaId: z.number(),
         nombre: z.string().min(1).max(100).optional(),
         tipo: z.enum(["SALON", "TERRAZA", "BARRA"]).optional(),
         maxMesas: z.number().int().min(1).optional(),
@@ -258,8 +264,9 @@ export const appRouter = router({
         activa: z.boolean().optional(),
       }))
       .mutation(async ({ input }) => {
-        const { id, ...data } = input;
-        const mesasZona = await db.getMesasByZona(id);
+        const { id, empresaId, ...data } = input;
+        await requireZona(id, empresaId);
+        const mesasZona = await db.getMesasByZona(id, empresaId);
         if (data.maxMesas !== undefined && data.maxMesas < mesasZona.length) {
           throw new TRPCError({ code: "BAD_REQUEST", message: `La zona ya tiene ${mesasZona.length} mesas; no se puede bajar el máximo de mesas a ${data.maxMesas}` });
         }
@@ -267,18 +274,19 @@ export const appRouter = router({
         if (data.maxSillas !== undefined && data.maxSillas < usadas) {
           throw new TRPCError({ code: "BAD_REQUEST", message: `La zona ya usa ${usadas} sillas; no se puede bajar el máximo de sillas a ${data.maxSillas}` });
         }
-        await db.updateZona(id, data);
+        await db.updateZona(id, empresaId, data);
         return { success: true };
       }),
 
     delete: publicProcedure
-      .input(z.object({ id: z.number() }))
+      .input(z.object({ id: z.number(), empresaId: z.number() }))
       .mutation(async ({ input }) => {
-        const mesasZona = await db.getMesasByZona(input.id);
+        await requireZona(input.id, input.empresaId);
+        const mesasZona = await db.getMesasByZona(input.id, input.empresaId);
         if (mesasZona.length > 0) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "No se puede eliminar una zona que tiene mesas" });
         }
-        await db.deleteZona(input.id);
+        await db.deleteZona(input.id, input.empresaId);
         return { success: true };
       }),
   }),

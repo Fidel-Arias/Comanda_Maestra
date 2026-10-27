@@ -54,25 +54,25 @@ describe("validarMesaEnZona", () => {
 describe("zona router", () => {
   it("delete con mesas falla", async () => {
     vi.mocked(db.getMesasByZona).mockResolvedValue([{ id: 1, sillas: 4 }]);
-    await expect(caller().zona.delete({ id: 1 })).rejects.toThrow(/mesas/i);
+    await expect(caller().zona.delete({ id: 1, empresaId: 1 })).rejects.toThrow(/mesas/i);
     expect(db.deleteZona).not.toHaveBeenCalled();
   });
   it("delete sin mesas funciona", async () => {
-    await caller().zona.delete({ id: 1 });
-    expect(db.deleteZona).toHaveBeenCalledWith(1);
+    await caller().zona.delete({ id: 1, empresaId: 1 });
+    expect(db.deleteZona).toHaveBeenCalledWith(1, 1);
   });
   it("update rechaza bajar maxMesas por debajo de lo usado", async () => {
     vi.mocked(db.getMesasByZona).mockResolvedValue([{ id: 1, sillas: 2 }, { id: 2, sillas: 2 }]);
-    await expect(caller().zona.update({ id: 1, maxMesas: 1 })).rejects.toThrow(/mesas/i);
+    await expect(caller().zona.update({ id: 1, empresaId: 1, maxMesas: 1 })).rejects.toThrow(/mesas/i);
     expect(db.updateZona).not.toHaveBeenCalled();
   });
   it("update rechaza bajar maxSillas por debajo de lo usado", async () => {
     vi.mocked(db.getMesasByZona).mockResolvedValue([{ id: 1, sillas: 6 }]);
-    await expect(caller().zona.update({ id: 1, maxSillas: 4 })).rejects.toThrow(/sillas/i);
+    await expect(caller().zona.update({ id: 1, empresaId: 1, maxSillas: 4 })).rejects.toThrow(/sillas/i);
   });
   it("update válido", async () => {
     vi.mocked(db.getMesasByZona).mockResolvedValue([{ id: 1, sillas: 6 }]);
-    await caller().zona.update({ id: 1, maxSillas: 6 });
+    await caller().zona.update({ id: 1, empresaId: 1, maxSillas: 6 });
     expect(db.updateZona).toHaveBeenCalled();
   });
 });
@@ -110,5 +110,51 @@ describe("mesa router con zona", () => {
     vi.mocked(db.getMesaById).mockResolvedValue({ id: 1, empresaId: 1, zonaId: 1, sillas: 6, capacidad: 6 } as any);
     vi.mocked(db.getMesasByZona).mockResolvedValue([{ id: 1, sillas: 6 }]);
     await expect(caller().mesa.update({ id: 1, sillas: 9 })).rejects.toThrow(/sillas/i);
+  });
+});
+
+describe("aislamiento por empresa y casos extra", () => {
+  const otra = { ...zona, empresaId: 2 };
+  it("zona.update de otra empresa -> NOT_FOUND sin escribir", async () => {
+    vi.mocked(db.getZonaById).mockResolvedValue(otra as any);
+    await expect(caller().zona.update({ id: 1, empresaId: 1, maxMesas: 5 })).rejects.toThrow(/no encontrada/i);
+    expect(db.updateZona).not.toHaveBeenCalled();
+  });
+  it("zona.delete de otra empresa -> NOT_FOUND sin escribir", async () => {
+    vi.mocked(db.getZonaById).mockResolvedValue(otra as any);
+    await expect(caller().zona.delete({ id: 1, empresaId: 1 })).rejects.toThrow(/no encontrada/i);
+    expect(db.deleteZona).not.toHaveBeenCalled();
+  });
+  it("zona inexistente -> NOT_FOUND", async () => {
+    vi.mocked(db.getZonaById).mockResolvedValue(null as any);
+    await expect(caller().zona.delete({ id: 9, empresaId: 1 })).rejects.toThrow(/no encontrada/i);
+  });
+  it("mesa.create con zona de otra empresa -> NOT_FOUND", async () => {
+    vi.mocked(db.getZonaById).mockResolvedValue(otra as any);
+    await expect(caller().mesa.create({ empresaId: 1, numero: 1, zonaId: 1, sillas: 2 })).rejects.toThrow(/no encontrada/i);
+    expect(db.createMesa).not.toHaveBeenCalled();
+  });
+  it("mover mesa valida solo la zona destino", async () => {
+    vi.mocked(db.getMesaById).mockResolvedValue({ id: 1, empresaId: 1, zonaId: 7, sillas: 4, capacidad: 4 } as any);
+    vi.mocked(db.getMesasByZona).mockResolvedValue([{ id: 2, sillas: 2 }]);
+    await caller().mesa.update({ id: 1, zonaId: 1 });
+    expect(db.getZonaById).toHaveBeenCalledTimes(1);
+    expect(db.getZonaById).toHaveBeenCalledWith(1);
+    expect(db.updateMesa).toHaveBeenCalled();
+  });
+  it("editar mesa en zona llena de mesas sigue válido", async () => {
+    vi.mocked(db.getMesaById).mockResolvedValue({ id: 1, empresaId: 1, zonaId: 1, sillas: 2, capacidad: 2 } as any);
+    vi.mocked(db.getMesasByZona).mockResolvedValue([{ id: 1, sillas: 2 }, { id: 2, sillas: 2 }]);
+    await caller().mesa.update({ id: 1, sillas: 3 });
+    expect(db.updateMesa).toHaveBeenCalled();
+  });
+  it("zona.update subiendo límites funciona", async () => {
+    vi.mocked(db.getMesasByZona).mockResolvedValue([{ id: 1, sillas: 6 }]);
+    await caller().zona.update({ id: 1, empresaId: 1, maxMesas: 10, maxSillas: 40 });
+    expect(db.updateZona).toHaveBeenCalledWith(1, 1, { maxMesas: 10, maxSillas: 40 });
+  });
+  it("sillas > 20 rechazado", async () => {
+    await expect(caller().mesa.create({ empresaId: 1, numero: 1, sillas: 21 })).rejects.toThrow();
+    await expect(caller().mesa.update({ id: 1, sillas: 21 })).rejects.toThrow();
   });
 });

@@ -120,7 +120,7 @@ export default function GestionMesas() {
     }
     const data = { nombre: zonaForm.nombre.trim(), tipo: zonaForm.tipo, maxMesas, maxSillas };
     if (editingZonaId) {
-      updateZonaMutation.mutate({ id: editingZonaId, ...data });
+      updateZonaMutation.mutate({ id: editingZonaId, empresaId: empresa?.id || 0, ...data });
     } else {
       createZonaMutation.mutate({ empresaId: empresa?.id || 0, ...data });
     }
@@ -366,7 +366,7 @@ export default function GestionMesas() {
                             toast.error("No se puede eliminar una zona que tiene mesas");
                             return;
                           }
-                          deleteZonaMutation.mutate({ id: z.id });
+                          deleteZonaMutation.mutate({ id: z.id, empresaId: empresa?.id || 0 });
                         }}>
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>

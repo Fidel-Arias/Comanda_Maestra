@@ -376,10 +376,10 @@ export async function getZonaById(id: number) {
   return result[0] || null;
 }
 
-export async function getMesasByZona(zonaId: number): Promise<{ id: number; sillas: number }[]> {
+export async function getMesasByZona(zonaId: number, empresaId: number): Promise<{ id: number; sillas: number }[]> {
   const db = await getDb();
   if (!db) return [];
-  return db.select({ id: mesas.id, sillas: mesas.sillas }).from(mesas).where(eq(mesas.zonaId, zonaId));
+  return db.select({ id: mesas.id, sillas: mesas.sillas }).from(mesas).where(and(eq(mesas.zonaId, zonaId), eq(mesas.empresaId, empresaId)));
 }
 
 export async function createZona(data: InsertZona) {
@@ -389,16 +389,16 @@ export async function createZona(data: InsertZona) {
   return result[0].id;
 }
 
-export async function updateZona(id: number, data: Partial<InsertZona>) {
+export async function updateZona(id: number, empresaId: number, data: Partial<InsertZona>) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.update(zonas).set(data).where(eq(zonas.id, id));
+  await db.update(zonas).set(data).where(and(eq(zonas.id, id), eq(zonas.empresaId, empresaId)));
 }
 
-export async function deleteZona(id: number) {
+export async function deleteZona(id: number, empresaId: number) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
-  await db.delete(zonas).where(eq(zonas.id, id));
+  await db.delete(zonas).where(and(eq(zonas.id, id), eq(zonas.empresaId, empresaId)));
 }
 
 export async function deleteMesa(id: number) {
