@@ -17,6 +17,8 @@ import {
 import { ArrowLeft, Boxes, Loader2, PackagePlus, Pencil, Plus, ScrollText, ShoppingCart, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useRealtime } from "@/hooks/useRealtime";
+import { toastAgotadoId } from "../components/AlertaAgotados";
 import { InsumoCodeInput, type InsumoEncontrado } from "../components/InsumoCodeInput";
 
 type Unidad = "UND" | "KG" | "G" | "L" | "ML";
@@ -54,6 +56,14 @@ export default function InsumosPage() {
     { enabled: !!empresaId },
   );
 
+  const utils = trpc.useUtils();
+  useRealtime(empresaId || undefined, (e) => {
+    if (e.type !== "insumo_stock" && e.type !== "insumo_agotado") return;
+    utils.insumo.listByEmpresa.invalidate();
+    utils.insumo.listAgotados.invalidate();
+    if (e.type === "insumo_stock" && Number(e.stock) > 0) toast.dismiss(toastAgotadoId(e.insumoId));
+  });
+
   const onError = (e: { message?: string }) => toast.error(e.message || "Error");
 
   const createMutation = trpc.insumo.create.useMutation({
@@ -69,7 +79,11 @@ export default function InsumosPage() {
     onError,
   });
   const movOpts = {
-    onSuccess: () => { toast.success("Stock actualizado"); refetch(); closeIngreso(); },
+    onSuccess: (r: { saldo: string }, v: { insumoId: number }) => {
+      toast.success("Stock actualizado");
+      if (Number(r.saldo) > 0) toast.dismiss(toastAgotadoId(v.insumoId));
+      refetch(); utils.insumo.listAgotados.invalidate(); closeIngreso();
+    },
     onError,
   };
   const ingresoMutation = trpc.insumo.registrarIngreso.useMutation(movOpts);
@@ -211,12 +225,13 @@ export default function InsumosPage() {
                 </TableHeader>
                 <TableBody>
                   {(insumos ?? []).map((i) => {
-                    const bajo = Number(i.stock) <= Number(i.stockMinimo);
+                    const agotado = Number(i.stock) <= 0;
+                    const bajo = !agotado && Number(i.stock) <= Number(i.stockMinimo);
                     return (
-                      <TableRow key={i.id} className={cn(bajo && "bg-red-500/10")}>
+                      <TableRow key={i.id} className={cn(agotado && "bg-red-500/15", bajo && "bg-amber-500/10")}>
                         <TableCell className="font-mono text-xs">{i.codigo}</TableCell>
                         <TableCell>{i.nombre}</TableCell>
-                        <TableCell className={cn("text-right font-semibold", bajo && "text-red-400")}>
+                        <TableCell className={cn("text-right font-semibold", agotado && "text-red-400", bajo && "text-amber-400")}>
                           {Number(i.stock)} {i.unidad}
                         </TableCell>
                         <TableCell className="text-right text-muted-foreground">{Number(i.stockMinimo)} {i.unidad}</TableCell>

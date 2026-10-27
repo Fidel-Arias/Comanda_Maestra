@@ -118,3 +118,20 @@
 - [ ] Corregir historial de ventas (no muestra ventas del día)
 - [ ] Corregir reportes PDF (no descarga)
 - [ ] Corregir reportes Excel (no descarga)
+
+## Clientes, inventario, mesas y notificaciones (plan 2026-10-27)
+- [x] Clientes por DNI/RUC con caché en BD y consulta a apis.net.pe (clave por empresa)
+- [x] Zonas, mesas y sillas con límites por zona
+- [x] Inventario de insumos, kardex, compras y gastos (ingreso por código o escáner)
+- [x] Recetas por plato, descuento de stock al pedir y bloqueo al mozo si no hay stock
+- [x] Notificaciones sonoras (cocina/bar, mozo) y alerta de insumo agotado a Caja y Dueño
+
+### Variable de entorno
+- `APIS_NET_PE_TOKEN` (opcional): token de respaldo para la consulta DNI/RUC. La clave por empresa se edita en Configuración y tiene prioridad.
+
+### Migraciones pendientes de aplicar
+- `drizzle/0001_opposite_catseye.sql`: agrega `empresas.apis_net_pe_token` e índices únicos `clientes_empresa_dni` y `clientes_empresa_ruc`. ATENCIÓN: también contiene drift ajeno al plan (`items_pedido.pagado`, `ventas.sub_cuenta`); verificar antes de aplicar en una BD que ya tenga esas columnas, y revisar duplicados de DNI/RUC antes de crear los índices únicos.
+- `drizzle/0002_broken_sebastian_shaw.sql`: tabla `zonas`, `mesas.zona_id` y `mesas.sillas`. Incluye al final un `UPDATE "mesas" SET "sillas" = "capacidad"` añadido a mano para migrar los datos existentes.
+- `drizzle/0003_normal_red_hulk.sql`: tablas `insumos`, `movimientos_inventario` y `recetas` (y sus enums).
+- `drizzle/0004_right_starfox.sql`: tablas `compras` y `compra_items`.
+- `drizzle/0005_huge_caretaker.sql`: índice `movimientos_referencia` en `movimientos_inventario`.

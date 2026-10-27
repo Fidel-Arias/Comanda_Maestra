@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { AlertaAgotados, useAlertaAgotados } from "@/features/inventory/components/AlertaAgotados";
 
 type MetodoPago = "EFECTIVO" | "TARJETA" | "YAPE" | "PLIN";
 
@@ -31,6 +32,7 @@ const metodosPago: { id: MetodoPago; label: string; icon: React.ElementType; col
 export default function Cajero() {
   const [, navigate] = useLocation();
   const { empleado, empresa, logout } = usePOS();
+  const alertaAgotados = useAlertaAgotados();
   const [selectedPedido, setSelectedPedido] = useState<number | null>(null);
   const [selectedMetodo, setSelectedMetodo] = useState<MetodoPago>("EFECTIVO");
   const [montoPagado, setMontoPagado] = useState("");
@@ -444,6 +446,7 @@ export default function Cajero() {
 
       {/* Main Content */}
       <main className="container py-6">
+        <AlertaAgotados {...alertaAgotados} />
         {/* Estado de Caja */}
         <Card className={cn(
           "mb-6 border-2",

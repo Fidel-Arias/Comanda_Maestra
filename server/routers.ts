@@ -74,6 +74,7 @@ async function moverInsumo(
   const r = await db.runInTransaction(tx => aplicarMovimiento(tx, { ...m, empresaId, empleadoId }));
   try {
     publish(empresaId, { type: "insumo_stock", insumoId: m.insumoId, stock: r.saldoDespues, bajo: r.bajo });
+    if (r.agotado) publish(empresaId, { type: "insumo_agotado", insumoId: m.insumoId, nombre: r.nombre });
   } catch (err) {
     console.error("[insumo] publish failed:", err);
   }

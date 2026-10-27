@@ -15,12 +15,21 @@ import {
   PieChart, Pie, Cell, LineChart, Line, Area, AreaChart
 } from "recharts";
 import { cn } from "@/lib/utils";
+import { AlertaAgotados, useAlertaAgotados } from "@/features/inventory/components/AlertaAgotados";
 
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4'];
 
 export default function Dashboard() {
   const [, navigate] = useLocation();
   const { empleado, empresa, logout } = usePOS();
+  const alertaAgotados = useAlertaAgotados();
+  const { data: insumos } = trpc.insumo.listByEmpresa.useQuery(
+    { empresaId: empresa?.id || 0 },
+    { enabled: !!empresa?.id }
+  );
+  const activos = (insumos ?? []).filter(i => i.activo);
+  const nAgotados = activos.filter(i => Number(i.stock) <= 0).length;
+  const nBajoMinimo = activos.filter(i => Number(i.stock) > 0 && Number(i.stock) <= Number(i.stockMinimo)).length;
 
   // Queries
   const { data: ventasTotales, isLoading: loadingVentas } = trpc.analytics.ventasTotales.useQuery(
@@ -136,8 +145,21 @@ export default function Dashboard() {
 
       {/* Main Content */}
       <main className="container py-6">
+        <AlertaAgotados {...alertaAgotados} />
         {/* KPIs */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+          <Card className="bg-card/50 border-border/50 cursor-pointer col-span-2 lg:col-span-4" onClick={() => navigate("/inventario")}>
+            <CardContent className="p-4 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-xs text-muted-foreground">Insumos agotados / bajo mínimo</p>
+                <p className="text-xl font-bold">
+                  <span className="text-red-400">{nAgotados}</span> agotados · <span className="text-amber-400">{nBajoMinimo}</span> bajo mínimo
+                </p>
+              </div>
+              <span className="text-sm text-blue-400">Ver inventario</span>
+            </CardContent>
+          </Card>
+
           <Card className="bg-card/50 border-border/50">
             <CardContent className="p-4">
               <div className="flex items-center gap-3">

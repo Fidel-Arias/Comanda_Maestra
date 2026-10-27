@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 
-export type NotificationKind = "nuevo" | "listo";
+export type NotificationKind = "nuevo" | "listo" | "alerta";
 
 export interface UseNotificationSoundReturn {
   enabled: boolean;
@@ -30,6 +30,12 @@ const PATTERNS: Record<NotificationKind, Array<[number, number, number]>> = {
     [523.25, 0, 0.3],
     [659.25, 0.12, 0.3],
     [783.99, 0.24, 0.45],
+  ],
+  // tono grave repetido tres veces (insumo agotado)
+  alerta: [
+    [220, 0, 0.25],
+    [220, 0.35, 0.25],
+    [220, 0.7, 0.25],
   ],
 };
 

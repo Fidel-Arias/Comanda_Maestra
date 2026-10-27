@@ -115,6 +115,16 @@ describe("movimientos", () => {
     expect(aplicarMovimiento).toHaveBeenCalledWith({}, expect.objectContaining({ tipo: "SALIDA", motivo: "MERMA", cantidad: 1 }));
   });
 
+  it("merma que deja saldo 0 publica insumo_agotado; con saldo > 0 no", async () => {
+    vi.mocked(aplicarMovimiento).mockResolvedValueOnce({ saldoDespues: "0.000", bajo: true, agotado: true, nombre: "Arroz" });
+    await caller().insumo.registrarMerma({ empresaId: 1, insumoId: 7, cantidad: 5, motivo: "MERMA", empleadoId: 3 });
+    expect(publish).toHaveBeenCalledWith(1, { type: "insumo_stock", insumoId: 7, stock: "0.000", bajo: true });
+    expect(publish).toHaveBeenCalledWith(1, { type: "insumo_agotado", insumoId: 7, nombre: "Arroz" });
+    vi.mocked(publish).mockClear();
+    await caller().insumo.registrarMerma({ empresaId: 1, insumoId: 7, cantidad: 1, motivo: "MERMA", empleadoId: 3 });
+    expect(vi.mocked(publish).mock.calls.map(c => c[1].type)).toEqual(["insumo_stock"]);
+  });
+
   it("ajustar usa AJUSTE con el saldo objetivo", async () => {
     await caller().insumo.ajustar({ empresaId: 1, insumoId: 7, nuevoSaldo: 3, empleadoId: 3 });
     expect(aplicarMovimiento).toHaveBeenCalledWith({}, expect.objectContaining({ tipo: "AJUSTE", motivo: "AJUSTE_MANUAL", cantidad: 3 }));
