@@ -14,7 +14,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/feedback/alert-dialog";
-import { ArrowLeft, Boxes, Loader2, PackagePlus, Pencil, Plus, ScrollText, Trash2 } from "lucide-react";
+import { ArrowLeft, Boxes, Loader2, PackagePlus, Pencil, Plus, ScrollText, ShoppingCart, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { InsumoCodeInput, type InsumoEncontrado } from "../components/InsumoCodeInput";
@@ -177,6 +177,10 @@ export default function InsumosPage() {
           </div>
           <div className="flex items-center gap-2">
             <ThemeToggle />
+            <Button variant="outline" onClick={() => navigate("/inventario/compras")} className="gap-2">
+              <ShoppingCart className="h-4 w-4" />
+              <span className="hidden sm:inline">Compras</span>
+            </Button>
             <Button variant="outline" onClick={() => openIngreso()} className="gap-2">
               <PackagePlus className="h-4 w-4" />
               <span className="hidden sm:inline">Ingresar producto</span>

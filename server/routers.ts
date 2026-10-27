@@ -9,6 +9,7 @@ import { validarMesaEnZona } from "@shared/zonas";
 import * as db from "./db";
 import { publish } from "./lib/events";
 import { aplicarMovimiento, armarKardex, exigirRolInventario, type MovimientoInput } from "./lib/inventario";
+import { agregarGastos, centsToStr, subtotalCents } from "./lib/compras";
 import * as nubefact from "./lib/nubefact";
 import { normalizarDocumento } from "./lib/documento";
 import { toPublicEmpresa } from "./lib/empresa";
@@ -47,6 +48,7 @@ async function assertMesaEnZona(
   if (error) throw new TRPCError({ code: "BAD_REQUEST", message: error });
 }
 
+const fechaYMD = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const unidadInsumo = z.enum(["UND", "KG", "G", "L", "ML"]);
 
 async function assertInsumoSinDuplicado(empresaId: number, codigo: string | undefined, codigoBarras: string | null | undefined, excluirId?: number) {
@@ -382,6 +384,84 @@ export const appRouter = router({
         const { saldoInicial, movs } = await db.getKardexRows(input.empresaId, input.insumoId, input.desde, input.hasta);
         return armarKardex(saldoInicial, movs);
       }),
+  }),
+
+  // ============================================
+  // COMPRA ROUTER
+  // ============================================
+  compra: router({
+    create: publicProcedure
+      .input(z.object({
+        empresaId: z.number(),
+        empleadoId: z.number(),
+        fecha: fechaYMD,
+        proveedor: z.string().trim().max(255).optional(),
+        comprobante: z.string().trim().max(50).optional(),
+        notas: z.string().trim().max(1000).optional(),
+        items: z.array(z.object({
+          insumoId: z.number(),
+          cantidad: z.number().positive(),
+          costoUnitario: z.number().min(0),
+        })).min(1),
+      }))
+      .mutation(async ({ input }) => {
+        const { empresaId, empleadoId } = input;
+        await exigirRolInventario(empleadoId, empresaId);
+        // Orden por insumoId evita deadlocks entre compras concurrentes; duplicados se rechazan (simple).
+        const items = [...input.items].sort((a, b) => a.insumoId - b.insumoId);
+        if (items.some((it, i) => i > 0 && it.insumoId === items[i - 1].insumoId)) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Insumo repetido en la compra" });
+        }
+        for (const it of items) {
+          const insumo = await db.getInsumoById(it.insumoId, empresaId);
+          if (!insumo) throw new TRPCError({ code: "NOT_FOUND", message: "Insumo no encontrado" });
+          if (!insumo.activo) throw new TRPCError({ code: "BAD_REQUEST", message: `El insumo ${insumo.nombre} está desactivado` });
+        }
+        const cents = items.map(it => subtotalCents(it.cantidad, it.costoUnitario));
+        const total = centsToStr(cents.reduce((a, b) => a + b, 0));
+        const { compraId, resultados } = await db.runInTransaction(async tx => {
+          const compraId = await db.insertCompra(tx, {
+            empresaId, empleadoId, fecha: input.fecha, total,
+            proveedor: input.proveedor || null, comprobante: input.comprobante || null, notas: input.notas || null,
+          });
+          await db.insertCompraItems(tx, items.map((it, i) => ({
+            compraId, insumoId: it.insumoId, cantidad: it.cantidad.toFixed(3),
+            costoUnitario: it.costoUnitario.toFixed(4), subtotal: centsToStr(cents[i]),
+          })));
+          const resultados = [];
+          for (const it of items) {
+            resultados.push(await aplicarMovimiento(tx, {
+              empresaId, empleadoId, insumoId: it.insumoId, tipo: "ENTRADA", motivo: "COMPRA",
+              cantidad: it.cantidad, costoUnitario: it.costoUnitario, referenciaTipo: "COMPRA", referenciaId: compraId,
+            }));
+          }
+          return { compraId, resultados };
+        });
+        items.forEach((it, i) => {
+          try {
+            publish(empresaId, { type: "insumo_stock", insumoId: it.insumoId, stock: resultados[i].saldoDespues, bajo: resultados[i].bajo });
+          } catch (err) {
+            console.error("[compra] publish failed:", err);
+          }
+        });
+        return { success: true, compraId, total };
+      }),
+
+    listByEmpresa: publicProcedure
+      .input(z.object({ empresaId: z.number(), desde: fechaYMD, hasta: fechaYMD }))
+      .query(async ({ input }) => db.getComprasByEmpresa(input.empresaId, input.desde, input.hasta)),
+
+    getById: publicProcedure
+      .input(z.object({ id: z.number(), empresaId: z.number() }))
+      .query(async ({ input }) => {
+        const c = await db.getCompraById(input.id, input.empresaId);
+        if (!c) throw new TRPCError({ code: "NOT_FOUND", message: "Compra no encontrada" });
+        return c;
+      }),
+
+    gastos: publicProcedure
+      .input(z.object({ empresaId: z.number(), desde: fechaYMD, hasta: fechaYMD }))
+      .query(async ({ input }) => agregarGastos(await db.getGastoRows(input.empresaId, input.desde, input.hasta))),
   }),
 
   // ============================================

@@ -413,6 +413,33 @@ export const movimientosInventario = pgTable("movimientos_inventario", {
 export type MovimientoInventario = typeof movimientosInventario.$inferSelect;
 export type InsertMovimientoInventario = typeof movimientosInventario.$inferInsert;
 
+export const compras = pgTable("compras", {
+  id: serial("id").primaryKey(),
+  empresaId: integer("empresa_id").references(() => empresas.id).notNull(),
+  fecha: date("fecha", { mode: "string" }).notNull(),
+  proveedor: varchar("proveedor", { length: 255 }),
+  comprobante: varchar("comprobante", { length: 50 }),
+  total: decimal("total", { precision: 10, scale: 2 }).notNull(),
+  notas: text("notas"),
+  empleadoId: integer("empleado_id").references(() => empleados.id).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (t) => [
+  index("compras_empresa_fecha").on(t.empresaId, t.fecha),
+]);
+
+export type Compra = typeof compras.$inferSelect;
+
+export const compraItems = pgTable("compra_items", {
+  id: serial("id").primaryKey(),
+  compraId: integer("compra_id").references(() => compras.id).notNull(),
+  insumoId: integer("insumo_id").references(() => insumos.id).notNull(),
+  cantidad: decimal("cantidad", { precision: 12, scale: 3 }).notNull(),
+  costoUnitario: decimal("costo_unitario", { precision: 10, scale: 4 }).notNull(),
+  subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull(),
+});
+
+export type CompraItem = typeof compraItems.$inferSelect;
+
 export const recetas = pgTable("recetas", {
   id: serial("id").primaryKey(),
   empresaId: integer("empresa_id").references(() => empresas.id).notNull(),

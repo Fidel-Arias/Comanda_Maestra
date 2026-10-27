@@ -18,7 +18,8 @@ import {
   ventas, InsertVenta, Venta,
   comprobantes, InsertComprobante, Comprobante,
   comprobanteItems, InsertComprobanteItem, ComprobanteItem,
-  insumos, InsertInsumo, movimientosInventario
+  insumos, InsertInsumo, movimientosInventario,
+  compras, compraItems
 } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
@@ -1798,4 +1799,52 @@ export async function getKardexRows(empresaId: number, insumoId: number, desde: 
     lte(movimientosInventario.createdAt, hasta),
   )).orderBy(asc(movimientosInventario.createdAt), asc(movimientosInventario.id));
   return { saldoInicial: prev[0] ? Number(prev[0].saldo) : 0, movs };
+}
+
+// ============================================
+// COMPRAS
+// ============================================
+
+type TxArg = Parameters<Parameters<typeof runInTransaction>[0]>[0];
+
+export async function insertCompra(tx: TxArg, values: typeof compras.$inferInsert): Promise<number> {
+  const [row] = await tx.insert(compras).values(values).returning({ id: compras.id });
+  return row.id;
+}
+
+export async function insertCompraItems(tx: TxArg, rows: (typeof compraItems.$inferInsert)[]) {
+  await tx.insert(compraItems).values(rows);
+}
+
+/** `desde`/`hasta`: 'YYYY-MM-DD' (compras.fecha es date). */
+export async function getComprasByEmpresa(empresaId: number, desde: string, hasta: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(compras).where(and(
+    eq(compras.empresaId, empresaId), gte(compras.fecha, desde), lte(compras.fecha, hasta),
+  )).orderBy(desc(compras.fecha), desc(compras.id));
+}
+
+export async function getCompraById(id: number, empresaId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const [compra] = await db.select().from(compras).where(and(eq(compras.id, id), eq(compras.empresaId, empresaId)));
+  if (!compra) return undefined;
+  const items = await db.select({
+    id: compraItems.id, insumoId: compraItems.insumoId, nombre: insumos.nombre, cantidad: compraItems.cantidad,
+    costoUnitario: compraItems.costoUnitario, subtotal: compraItems.subtotal,
+  }).from(compraItems).innerJoin(insumos, eq(insumos.id, compraItems.insumoId))
+    .where(eq(compraItems.compraId, id)).orderBy(asc(compraItems.id));
+  return { ...compra, items };
+}
+
+export async function getGastoRows(empresaId: number, desde: string, hasta: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({
+    fecha: compras.fecha, insumoId: compraItems.insumoId, nombre: insumos.nombre, subtotal: compraItems.subtotal,
+  }).from(compraItems)
+    .innerJoin(compras, eq(compras.id, compraItems.compraId))
+    .innerJoin(insumos, eq(insumos.id, compraItems.insumoId))
+    .where(and(eq(compras.empresaId, empresaId), gte(compras.fecha, desde), lte(compras.fecha, hasta)));
 }
