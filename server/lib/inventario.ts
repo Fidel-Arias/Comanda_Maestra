@@ -217,8 +217,8 @@ async function mover(
   return { insumoId, stock: row.stock, bajo: saldo <= Number(row.stockMinimo), agotado: salida && saldo <= 0, nombre: row.nombre };
 }
 
-async function recetaDe(productoId: number, empresaId: number) {
-  const rows = await dbModule.getRecetasByProductos([productoId], empresaId);
+async function recetaDe(tx: Tx, productoId: number, empresaId: number) {
+  const rows = await dbModule.getRecetasByProductos([productoId], empresaId, tx);
   return rows.map(r => ({ insumoId: r.insumoId, cantidad: Number(r.cantidad) }));
 }
 
@@ -231,14 +231,14 @@ export async function descontarInsumosItem(
   tx: Tx,
   p: { empresaId: number; itemId: number; productoId: number; cantidad: number; empleadoId: number | null },
 ): Promise<InsumoTocado[]> {
-  const consumo = consumoPorPlato(await recetaDe(p.productoId, p.empresaId), p.cantidad)
+  const consumo = consumoPorPlato(await recetaDe(tx, p.productoId, p.empresaId), p.cantidad)
     .filter(c => c.cantidad > 0)
     .sort((a, b) => a.insumoId - b.insumoId);
   const tocados: InsumoTocado[] = [];
   for (const c of consumo) {
     const t = await mover(tx, p.empresaId, c.insumoId, c.cantidad, true, p.itemId, p.empleadoId);
     if (!t) {
-      const ins = await dbModule.getInsumoById(c.insumoId, p.empresaId);
+      const ins = await dbModule.getInsumoById(c.insumoId, p.empresaId, tx);
       throw new StockInsuficienteError(c.insumoId, ins?.nombre ?? `insumo #${c.insumoId}`);
     }
     tocados.push(t);
@@ -269,7 +269,7 @@ export async function reponerInsumosItems(
     }
     const objetivo = it.cantidad === undefined
       ? Array.from(pendiente, ([insumoId, cantidad]) => ({ insumoId, cantidad }))
-      : consumoPorPlato(await recetaDe(it.productoId, empresaId), it.cantidad)
+      : consumoPorPlato(await recetaDe(tx, it.productoId, empresaId), it.cantidad)
           .map(c => ({ insumoId: c.insumoId, cantidad: Math.min(c.cantidad, pendiente.get(c.insumoId) ?? 0) }));
     for (const o of objetivo) {
       const cantidad = r3(o.cantidad);

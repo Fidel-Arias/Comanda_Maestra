@@ -533,8 +533,9 @@ export async function getPedidoActivo(mesaId: number) {
   return result[0];
 }
 
-export async function getPedidoById(id: number) {
-  const db = await getDb();
+/** Pasar `tx` cuando se llama dentro de una transaccion (el pool es pequeno: leer por el pool ahi puede colgarlo). */
+export async function getPedidoById(id: number, tx?: TxArg) {
+  const db = tx ?? (await getDb());
   if (!db) return undefined;
   const result = await db.select().from(pedidos).where(eq(pedidos.id, id)).limit(1);
   return result[0];
@@ -1704,7 +1705,7 @@ export async function updateItemsSubcuentas(updates: { itemId: number, subCuenta
 
 /** Borra el pedido (y libera la mesa) dentro de `tx`; devuelve los items borrados para reponer stock. */
 export async function deletePedido(tx: TxArg, id: number) {
-  const pedido = await getPedidoById(id);
+  const pedido = await getPedidoById(id, tx);
   if (!pedido) return undefined;
 
   // Delete itemsPedido first due to FK constraints
@@ -1737,8 +1738,8 @@ export async function getInsumosByEmpresa(empresaId: number) {
   return db.select().from(insumos).where(and(eq(insumos.empresaId, empresaId), eq(insumos.activo, true))).orderBy(asc(insumos.nombre));
 }
 
-export async function getInsumoById(id: number, empresaId: number) {
-  const db = await getDb();
+export async function getInsumoById(id: number, empresaId: number, tx?: TxArg) {
+  const db = tx ?? (await getDb());
   if (!db) return undefined;
   const r = await db.select().from(insumos).where(and(eq(insumos.id, id), eq(insumos.empresaId, empresaId))).limit(1);
   return r[0];
@@ -1904,9 +1905,9 @@ export async function getMovimientosItems(tx: TxArg, empresaId: number, itemIds:
 }
 
 /** Lo usa el descuento de stock por pedido (Task 10). */
-export async function getRecetasByProductos(productoIds: number[], empresaId: number): Promise<{ productoId: number; insumoId: number; cantidad: string }[]> {
+export async function getRecetasByProductos(productoIds: number[], empresaId: number, tx?: TxArg): Promise<{ productoId: number; insumoId: number; cantidad: string }[]> {
   if (productoIds.length === 0) return [];
-  const db = await getDb();
+  const db = tx ?? (await getDb());
   if (!db) return [];
   return db
     .select({ productoId: recetas.productoId, insumoId: recetas.insumoId, cantidad: recetas.cantidad })

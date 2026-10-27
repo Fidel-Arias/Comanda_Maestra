@@ -47,6 +47,10 @@ const TX = { fake: "tx" };
 const soloEnTx = (tx: unknown) => {
   if (tx !== TX || !enTx) throw new Error("escritura fuera de la transaccion");
 };
+/** Una lectura sin el tx mientras hay una transaccion abierta usaria otra conexion del pool (max 3) y puede colgarlo. */
+const lee = (tx?: unknown) => {
+  if (enTx && tx !== TX) throw new Error("lectura por el pool dentro de la transaccion");
+};
 const r3 = (n: number) => Number(n.toFixed(3));
 const insumo = (id: number, stock: number, o: Partial<Insumo> = {}): Insumo =>
   ({ id, empresaId: 1, nombre: `Insumo${id}`, stock, stockMinimo: 1, activo: true, ...o });
@@ -130,16 +134,30 @@ beforeEach(() => {
     soloEnTx(tx);
     return s.movs.filter(x => x.referenciaTipo === "ITEM_PEDIDO" && ids.includes(x.referenciaId!)) as any;
   });
-  m(db.getRecetasByProductos).mockImplementation(async (ids: number[]) => recetas.filter(r => ids.includes(r.productoId)));
-  m(db.getInsumoById).mockImplementation(async (id: number) => s.insumos.find(i => i.id === id) as any);
-  m(db.getInsumosByEmpresa).mockImplementation(async () =>
-    s.insumos.filter(i => i.activo).map(i => ({ ...i, stock: i.stock.toFixed(3) })) as any);
-  m(db.getProductosByEmpresa).mockResolvedValue([{ id: 5 }, { id: 6 }, { id: 7 }] as any);
-  m(db.getPedidoById).mockResolvedValue({ id: 9, empresaId: 1, mesaId: 4, mozoId: 3 } as any);
-  m(db.getItemContext).mockResolvedValue({ empresaId: 1, mozoId: 3, mesaNumero: 12 });
-  m(db.getMesaById).mockResolvedValue({ id: 4, numero: 12 } as any);
-  m(db.getProductoById).mockResolvedValue({ id: 5, categoriaId: 2 } as any);
-  m(db.getCategoriaById).mockResolvedValue({ id: 2, area: "COCINA" } as any);
+  m(db.getRecetasByProductos).mockImplementation(async (ids: number[], _e: number, tx?: unknown) => {
+    lee(tx);
+    return recetas.filter(r => ids.includes(r.productoId));
+  });
+  m(db.getInsumoById).mockImplementation(async (id: number, _e: number, tx?: unknown) => {
+    lee(tx);
+    return s.insumos.find(i => i.id === id) as any;
+  });
+  m(db.getPedidoById).mockImplementation(async (_id: number, tx?: unknown) => {
+    lee(tx);
+    return { id: 9, empresaId: 1, mesaId: 4, mozoId: 3, orderStatus: s.estadoPedido } as any;
+  });
+  // Lecturas que no aceptan tx: llamarlas dentro de la transaccion es un error.
+  const fuera = <T,>(v: T) => async () => { lee(); return v; };
+  m(db.getInsumosByEmpresa).mockImplementation(async () => {
+    lee();
+    return s.insumos.filter(i => i.activo).map(i => ({ ...i, stock: i.stock.toFixed(3) })) as any;
+  });
+  m(db.getProductosByEmpresa).mockImplementation(fuera([{ id: 5 }, { id: 6 }, { id: 7 }] as any));
+  m(db.getItemContext).mockImplementation(fuera({ empresaId: 1, mozoId: 3, mesaNumero: 12 }));
+  m(db.getMesaById).mockImplementation(fuera({ id: 4, numero: 12 } as any));
+  m(db.getProductoById).mockImplementation(fuera({ id: 5, categoriaId: 2 } as any));
+  m(db.getCategoriaById).mockImplementation(fuera({ id: 2, area: "COCINA" } as any));
+  m(db.updateProductoStock).mockImplementation(async () => lee());
 });
 
 afterEach(() => {
@@ -217,6 +235,23 @@ describe("itemPedido.add: descuento con bloqueo", () => {
     s.insumos = [insumo(1, 50, { activo: false, nombre: "Viejo" })];
     recetas = [{ productoId: 5, insumoId: 1, cantidad: "1" }];
     await expect(add(5, 1)).rejects.toMatchObject({ code: "PRECONDITION_FAILED", message: "Sin stock de Viejo" });
+  });
+
+  it("un fallo de updateProductoStock (legado, tras el commit) no hace fallar el pedido", async () => {
+    vi.mocked(db.updateProductoStock).mockRejectedValueOnce(new Error("db"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    recetas = [{ productoId: 5, insumoId: 1, cantidad: "1" }];
+    await expect(add(5, 2)).resolves.toMatchObject({ success: true });
+    expect(stock(1)).toBe(8);
+    expect(s.items).toHaveLength(1);
+  });
+
+  it("pedido CANCELADO -> PRECONDITION_FAILED sin crear el item", async () => {
+    recetas = [{ productoId: 5, insumoId: 1, cantidad: "1" }];
+    s.estadoPedido = "CANCELADO";
+    await expect(add(5, 1)).rejects.toMatchObject({ code: "PRECONDITION_FAILED", message: "El pedido está cancelado" });
+    expect(s.items).toEqual([]);
+    expect(stock(1)).toBe(10);
   });
 
   it("un fallo de publish nunca hace fallar el pedido", async () => {
@@ -315,6 +350,16 @@ describe("itemPedido.updateCantidad aplica solo la diferencia", () => {
     expect(s.items[0].cantidad).toBe(3);
     expect(stock(1)).toBe(1);
     expect(deTipo("insumo_agotado")).toHaveLength(1);
+  });
+
+  it("pedido CANCELADO: subir se rechaza, bajar se permite", async () => {
+    const { itemId } = await add(5, 3);
+    s.estadoPedido = "CANCELADO";
+    await expect(caller().itemPedido.updateCantidad({ id: itemId, cantidad: 4, subtotal: "40.00" }))
+      .rejects.toMatchObject({ code: "PRECONDITION_FAILED", message: "El pedido está cancelado" });
+    expect(s.items[0].cantidad).toBe(3);
+    await caller().itemPedido.updateCantidad({ id: itemId, cantidad: 1, subtotal: "10.00" });
+    expect(stock(1)).toBe(9);
   });
 
   it("item anterior al inventario (sin salidas registradas): bajar no repone nada", async () => {

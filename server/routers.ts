@@ -112,6 +112,13 @@ async function conStock<T>(empresaId: number, mesaNumero: () => Promise<number |
   }
 }
 
+async function exigirPedidoNoCancelado(tx: Tx, pedidoId: number) {
+  const pedido = await db.getPedidoById(pedidoId, tx);
+  if (pedido?.orderStatus === "CANCELADO") {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: "El pedido está cancelado" });
+  }
+}
+
 /** Repone el stock de los items que se eliminan/anulan (los ya CANCELADO no se reponen). */
 function reponerItems(tx: Tx, empresaId: number, items: { id: number; productoId: number; estado: string }[]) {
   const activos = items.filter(i => i.estado !== "CANCELADO").map(i => ({ itemId: i.id, productoId: i.productoId }));
@@ -891,6 +898,7 @@ export const appRouter = router({
 
         // Item + descuento de insumos en una sola transaccion: si falta stock no se crea el item.
         const { itemId, tocados } = await conStock(pedido.empresaId, mesaNumero, async tx => {
+          await exigirPedidoNoCancelado(tx, input.pedidoId);
           const itemId = await db.addItemPedido(tx, {
             pedidoId: input.pedidoId,
             productoId: input.productoId,
@@ -905,8 +913,13 @@ export const appRouter = router({
           return { itemId, tocados };
         });
 
-        // Actualizar stock del producto
-        await db.updateProductoStock(input.productoId, input.cantidad);
+        // Actualizar stock del producto (legado). Ya hubo commit: si falla, solo se registra (un error aqui
+        // haria reintentar al cliente y descontar dos veces).
+        try {
+          await db.updateProductoStock(input.productoId, input.cantidad);
+        } catch (err) {
+          console.error("[itemPedido.add] updateProductoStock failed:", err);
+        }
 
         await avisarInsumos(pedido.empresaId, tocados, tocados.filter(t => t.agotado), mesaNumero);
 
@@ -943,6 +956,7 @@ export const appRouter = router({
           await db.updateItemCantidad(tx, input.id, input.cantidad, input.subtotal);
           const diff = input.cantidad - item.cantidad;
           if (item.estado === "CANCELADO" || diff === 0) return [];
+          if (diff > 0) await exigirPedidoNoCancelado(tx, item.pedidoId);
           const ref = { itemId: item.id, productoId: item.productoId };
           return diff > 0
             ? descontarInsumosItem(tx, { ...ref, empresaId: ctx.empresaId, cantidad: diff, empleadoId: ctx.mozoId })
@@ -957,7 +971,7 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         const r = await db.runInTransaction(async tx => {
           const item = await db.deleteItem(tx, input.id);
-          const pedido = item && (await db.getPedidoById(item.pedidoId));
+          const pedido = item && (await db.getPedidoById(item.pedidoId, tx));
           return pedido && { empresaId: pedido.empresaId, tocados: await reponerItems(tx, pedido.empresaId, [item]) };
         });
         if (r) await avisarInsumos(r.empresaId, r.tocados, []);
