@@ -78,7 +78,7 @@ export default function GestionProductos() {
   const [form, setForm] = useState<ProductoForm>(initialForm);
   const [receta, setReceta] = useState<RecetaRow[]>([]);
   const [recetaLoaded, setRecetaLoaded] = useState(false);
-  const puedeReceta = !!empleado && ["CAJERO", "DUENO", "ADMIN"].includes(empleado.rol);
+  const puedeReceta = !!empleado && ["DUENO", "ADMIN"].includes(empleado.rol);
 
   // Queries
   const { data: productos, isLoading, refetch } = trpc.producto.listByEmpresa.useQuery(
@@ -96,19 +96,23 @@ export default function GestionProductos() {
     { enabled: !!empresa?.id && puedeReceta }
   );
 
-  const { data: recetaActual } = trpc.receta.getByProducto.useQuery(
+  const { data: recetaActual, isFetching: recetaFetching } = trpc.receta.getByProducto.useQuery(
     { empresaId: empresa?.id || 0, productoId: editingId || 0 },
     { enabled: !!empresa?.id && !!editingId && isDialogOpen && puedeReceta }
   );
 
   useEffect(() => {
-    if (recetaActual && editingId && !recetaLoaded) {
+    // !isFetching: no tomar datos en caché mientras se refresca (evita cargar una receta vieja)
+    if (recetaActual && !recetaFetching && editingId && !recetaLoaded) {
       setReceta(recetaActual.map((r) => ({ insumoId: String(r.insumoId), cantidad: String(parseFloat(r.cantidad)) })));
       setRecetaLoaded(true);
     }
-  }, [recetaActual, editingId, recetaLoaded]);
+  }, [recetaActual, recetaFetching, editingId, recetaLoaded]);
 
-  const recetaMutation = trpc.receta.save.useMutation();
+  const utils = trpc.useUtils();
+  const recetaMutation = trpc.receta.save.useMutation({
+    onSuccess: () => utils.receta.getByProducto.invalidate(),
+  });
 
   // Guarda la receta tras el producto; si falla solo avisa (el producto ya quedó guardado).
   const saveReceta = async (productoId: number) => {

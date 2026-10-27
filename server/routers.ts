@@ -387,7 +387,7 @@ export const appRouter = router({
   }),
 
   // ============================================
-  // COMPRA ROUTER
+  // RECETA ROUTER
   // ============================================
   receta: router({
     getByProducto: publicProcedure
@@ -426,6 +426,9 @@ export const appRouter = router({
       }),
   }),
 
+  // ============================================
+  // COMPRA ROUTER
+  // ============================================
   compra: router({
     create: publicProcedure
       .input(z.object({
