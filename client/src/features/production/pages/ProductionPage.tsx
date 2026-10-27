@@ -9,6 +9,8 @@ import { format } from "date-fns";
 import { es } from "date-fns/locale";
 
 import { toast } from "sonner";
+import { useRealtime } from "@/hooks/useRealtime";
+import { useNotificationSound } from "@/hooks/useNotificationSound";
 
 interface ProductionPageProps {
     area: "COCINA" | "BAR";
@@ -22,9 +24,18 @@ export default function ProductionPage({ area }: ProductionPageProps) {
         { empresaId: empresa?.id || 0, area },
         {
             enabled: !!empresa?.id,
-            refetchInterval: 3000 // Actualización casi instantánea (cada 3 seg)
+            refetchInterval: 15000 // Respaldo; las novedades llegan por SSE
         }
     );
+
+    const { enabled, enable, play } = useNotificationSound();
+
+    useRealtime(empresa?.id, (e) => {
+        if (e.type === "comanda_nueva" && e.area === area) {
+            play("nuevo");
+            utils.pedido.listComandas.invalidate();
+        }
+    });
 
     const updateStatusMutation = trpc.itemPedido.updateStatus.useMutation({
         onSuccess: () => {
@@ -50,6 +61,11 @@ export default function ProductionPage({ area }: ProductionPageProps) {
                     </h1>
                 </div>
                 <div className="flex items-center gap-4">
+                    {!enabled && (
+                        <Button variant="outline" size="sm" onClick={enable} className="print:hidden">
+                            Activar sonido
+                        </Button>
+                    )}
                     <Button
                         variant="outline"
                         size="sm"

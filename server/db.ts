@@ -499,6 +499,19 @@ export async function getPedidoById(id: number) {
   return result[0];
 }
 
+export async function getItemContext(itemId: number): Promise<{ empresaId: number; mozoId: number; mesaNumero: number } | undefined> {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db
+    .select({ empresaId: pedidos.empresaId, mozoId: pedidos.mozoId, mesaNumero: mesas.numero })
+    .from(itemsPedido)
+    .innerJoin(pedidos, eq(itemsPedido.pedidoId, pedidos.id))
+    .innerJoin(mesas, eq(pedidos.mesaId, mesas.id))
+    .where(eq(itemsPedido.id, itemId))
+    .limit(1);
+  return result[0];
+}
+
 export async function createPedido(data: InsertPedido) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");

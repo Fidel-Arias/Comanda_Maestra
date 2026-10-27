@@ -5,6 +5,7 @@ import { systemRouter } from "./_core/systemRouter";
 import { publicProcedure, router } from "./_core/trpc";
 import { z } from "zod";
 import * as db from "./db";
+import { publish } from "./lib/events";
 import * as nubefact from "./lib/nubefact";
 
 /**
@@ -410,6 +411,18 @@ export const appRouter = router({
         // Actualizar stock del producto
         await db.updateProductoStock(input.productoId, input.cantidad);
 
+        // Notificar a cocina/bar (nunca debe hacer fallar la mutación)
+        try {
+          const pedido = await db.getPedidoById(input.pedidoId);
+          const producto = await db.getProductoById(input.productoId);
+          const categoria = producto ? await db.getCategoriaById(producto.categoriaId) : undefined;
+          if (pedido && categoria) {
+            publish(pedido.empresaId, { type: "comanda_nueva", area: categoria.area, pedidoId: input.pedidoId });
+          }
+        } catch (err) {
+          console.error("[itemPedido.add] publish failed:", err);
+        }
+
         return { success: true, itemId };
       }),
 
@@ -438,6 +451,17 @@ export const appRouter = router({
       }))
       .mutation(async ({ input }) => {
         await db.updateItemEstado(input.id, input.estado);
+
+        if (input.estado === "LISTO") {
+          try {
+            const ctx = await db.getItemContext(input.id);
+            if (ctx) {
+              publish(ctx.empresaId, { type: "item_listo", mozoId: ctx.mozoId, itemId: input.id, mesaNumero: ctx.mesaNumero });
+            }
+          } catch (err) {
+            console.error("[itemPedido.updateStatus] publish failed:", err);
+          }
+        }
         return { success: true };
       }),
 

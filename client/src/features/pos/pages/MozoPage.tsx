@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { useRealtime } from "@/hooks/useRealtime";
+import { useNotificationSound } from "@/hooks/useNotificationSound";
 
 type MesaEstado = "DISPONIBLE" | "OCUPADA" | "PIDIENDO_CUENTA" | "RESERVADA";
 
@@ -74,9 +76,19 @@ export default function Mozo() {
     { empresaId: empresa?.id || 0 },
     {
       enabled: !!empresa?.id,
-      refetchInterval: 5000
+      refetchInterval: 15000
     }
   );
+
+  const { enabled: sonidoActivo, enable: activarSonido, play } = useNotificationSound();
+
+  useRealtime(empresa?.id, (e) => {
+    if (e.type === "item_listo" && e.mozoId === empleado?.id) {
+      play("listo");
+      toast.info(`Mesa ${e.mesaNumero}: pedido listo`);
+      refetchListos();
+    }
+  });
 
   const updateItemStatusMutation = trpc.itemPedido.updateStatus.useMutation({
     onSuccess: () => {
@@ -170,6 +182,11 @@ export default function Mozo() {
             </div>
 
             <div className="flex gap-2">
+              {!sonidoActivo && (
+                <Button variant="outline" size="sm" onClick={activarSonido}>
+                  Activar sonido
+                </Button>
+              )}
               <Sheet>
                 <SheetTrigger asChild>
                   <Button variant="ghost" size="icon" className="relative">
