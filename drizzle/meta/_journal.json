@@ -22,6 +22,13 @@
       "when": 1793114837657,
       "tag": "0002_broken_sebastian_shaw",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793115107799,
+      "tag": "0003_normal_red_hulk",
+      "breakpoints": true
     }
   ]
 }
